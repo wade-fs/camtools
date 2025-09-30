@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/home/wade/venv/bin/python3
 import os
 import subprocess
 import argparse
