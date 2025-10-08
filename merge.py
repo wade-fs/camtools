@@ -60,18 +60,14 @@ def build_concat_file(files):
     return list_file
 
 def total_duration(files):
-    total = 0.0
-    for f in files:
-        out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", f],
-            capture_output=True, text=True
-        )
-        total += float(out.stdout.strip())
-    return total
+    return sum(get_duration(f) for f in files)
 
 def shorten_video(output_file, target_seconds):
-    duration = total_duration([output_file])
+    if not os.path.exists(output_file):
+        print(f"錯誤: 輸出檔案不存在 {output_file}")
+        return
+
+    duration = get_duration(output_file)
     if duration <= target_seconds:
         print(f"總長度 {duration:.2f}s <= {target_seconds}s，不需要縮短")
         return
@@ -163,20 +159,19 @@ def main():
         output_file = f"{TODAY}-merged.mp4"
     elif args.info:
         file_names = args.info.split()
-        files = []
-        total_duration = 0.0
+        total_duration_val = 0.0
         for f in file_names:
             fpath = os.path.join(CAM_DIR, f)
             if not os.path.isfile(fpath):
                 print(f"錯誤: 檔案不存在 {fpath}")
                 continue
             duration = get_duration(fpath)
-            total_duration += duration
+            total_duration_val += duration
             print(f"{fpath} {duration}秒")
-        print(f"總長度 {total_duration}秒")
+        print(f"總長度 {total_duration_val}秒")
         sys.exit(0)
     else:
-        print("錯誤: 必須指定 -p 或 -m")
+        print("錯誤: 必須指定 -p 或 -m 或 -i")
         sys.exit(1)
 
     # 建立 concat 清單
@@ -186,6 +181,7 @@ def main():
 
     # 縮短處理
     if args.shorten:
+        output_file = f"{TODAY}-shorten.mp4"
         shorten_video(output_file, args.shorten)
 
     os.remove(concat_file)
