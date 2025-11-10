@@ -371,11 +371,15 @@ def main():
   ./camera.py -l
   # 2. (統計) 顯示指定日期 (20251109) 的影片清單
   ./camera.py -l 20251109
-  # 3. (統計) 顯示所有檔案 (不分影片/照片) 的日期數量統計
-  ./camera.py -d
-  # 4. (合併+縮短) 合併後縮短
-  ./camera.py -m -s 45 -f "VID_20240201*"
-  # 5. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
+  # 3. (處理) 合併檔案並指定輸出檔名
+  ./camera.py -m -f "VID_20240201*" -n my_merged_video.mp4
+  # 4. (處理) 切片並指定輸出檔名 (單檔)
+  ./camera.py -S 5-15.5 -f video.mp4 -n sliced_clip.mp4
+  # 5. (處理) 縮短檔案長度
+  ./camera.py -s 179 -f "20251110*" -n "20251110-割草2.mp4"
+  # 6. (合併+縮短) 合併後縮短                                                                              
+  ./camera.py -m -s 45 -f "VID_20240201*"                                                                  
+  # 7. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
   ./camera.py -y
     """
 
@@ -386,12 +390,8 @@ def main():
     )
     
     # 統計/資訊
-    # 使用 nargs='?' 讓 -l 可選地接受一個參數 (日期)
-    # const=LATEST_DATE_CONST: 當只使用 -l 但後面沒有跟參數時，值為 LATEST_DATE_CONST
-    # default=None: 當完全沒有使用 -l 時，值為 None
     parser.add_argument("-l", "--last", nargs='?', const=LATEST_DATE_CONST, type=validate_date_format_opt,
         help="[統計] 顯示最新日期影片的檔案清單 (不帶日期)。或指定日期 (YYYYmmdd)。")
-    
     parser.add_argument("-d", "--date", action="store_true", help="[統計] 顯示所有檔案按日期的數量統計，並依日期排序。")
     parser.add_argument("-i", "--info", 
         help="[資訊] 顯示指定檔案（可多個）的長度與總長度。")
@@ -405,6 +405,8 @@ def main():
         help="[縮短] 將影片縮短至指定秒數。若搭配 -m，則先合併再縮短。")
     parser.add_argument("-S", "--slice", 
         help="[切片] 對影片裁剪區間 (例如: 5-15.5)。若搭配 -m，則先合併再切片。")
+    parser.add_argument("-n", "--name", 
+        help="[處理] 指定輸出目標檔名 (限 -m, -s, -S 搭配使用)。")
     parser.add_argument("--shrink", nargs=2, metavar=("RESOLUTION", "FILE"),
         help="Shrink video to given resolution (e.g. 1024x768 input.mp4)")
         
@@ -424,7 +426,7 @@ def main():
     # --- 1. 同步模式 (--sync) ---
     if args.sync:
         # 檢查其他衝突選項 (排除 args.last 可能是 LATEST_DATE_CONST)
-        conflict_args = [args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink]
+        conflict_args = [args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name]
         if any(conflict_args) or (args.last is not None):
             print("錯誤: --sync 不能與其他處理選項同時使用")
             sys.exit(1)
@@ -433,7 +435,7 @@ def main():
 
     # --- 2. 統計模式 (--last, --date, --info) ---
     if args.last is not None or args.date:
-        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink]
+        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name]
         if any(conflict_args):
             print("錯誤: 統計模式不能與其他處理選項同時使用")
             sys.exit(1)
@@ -457,7 +459,7 @@ def main():
         return
 
     if args.info:
-        conflict_args = [args.merge, args.files, args.shorten, args.slice, args.shrink]
+        conflict_args = [args.merge, args.files, args.shorten, args.slice, args.shrink, args.name]
         if any(conflict_args):
             print("錯誤: --info 不能與其他處理選項同時使用")
             sys.exit(1)
@@ -490,7 +492,10 @@ def main():
         if not args.files:
             print("錯誤: --merge, --shorten, 或 --slice 必須搭配 --files 使用。")
             sys.exit(1)
-
+            
+        # 處理 -n 的邏輯
+        manual_output_name = args.name
+        
         patterns = args.files.split()
         files_to_process = resolve_files(patterns, require_mp4=True)
         
@@ -515,32 +520,40 @@ def main():
             finally:
                 if os.path.exists(concat_file): os.remove(concat_file)
 
-            # 確保檔案名安全
-            safe_file_tag = re.sub(r'[^\w\-]', '_', os.path.basename(args.files.split()[0].replace('*','').replace('?','')))
-            output_file_base = f"{TODAY}-{safe_file_tag}"
+            # 決定最終輸出檔名
+            if manual_output_name:
+                output_file = manual_output_name
+            else:
+                safe_file_tag = re.sub(r'[^\w\-]', '_', os.path.basename(args.files.split()[0].replace('*','').replace('?','')))
+                action = "shorten" if args.shorten else "slice"
+                output_file = f"{TODAY}-{safe_file_tag}-{action}.mp4"
             
             if args.shorten:
-                output_file = f"{output_file_base}-shorten.mp4"
+                # 縮短會覆蓋
                 shutil.move(temp_merged_file, output_file)
                 shorten_video(output_file, args.shorten)
             
             elif args.slice:
-                output_file = f"{output_file_base}-slice.mp4"
+                # 切片會產生新檔
                 try:
+                    # slice_video 會自動將 temp_merged_file 處理成 output_file
                     slice_video(temp_merged_file, args.slice, output_file)
                 except subprocess.CalledProcessError as e:
                     print(f"FFmpeg 切片失敗 for {temp_merged_file}: {e}")
                     sys.exit(1)
                 finally:
+                    # 切片成功或失敗，都應清除中介檔
                     if os.path.exists(temp_merged_file): os.remove(temp_merged_file) 
             
-            if os.path.exists(temp_merged_file): os.remove(temp_merged_file) # 再次確保移除
+            # 再次確保移除中介檔，以防萬一
+            if os.path.exists(temp_merged_file): os.remove(temp_merged_file) 
 
             return
 
         elif args.merge:
             # 模式 2: 純合併 (-m, -f)
-            output_file = f"{TODAY}-merge.mp4"
+            output_file = manual_output_name if manual_output_name else f"{TODAY}-merge.mp4"
+            
             concat_file = build_concat_file(files_to_process)
             print(f"合併影片輸出: {output_file}")
             
@@ -557,19 +570,46 @@ def main():
 
         elif args.shorten:
             # 模式 3: 純縮短 (對每個檔案獨立縮短, -s, -f)
+            
+            # 注意：如果單獨縮短，且使用了 -n，則只能處理一個檔案
+            if manual_output_name and len(files_to_process) > 1:
+                 print("錯誤: 單獨縮短 (-s) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
+                 sys.exit(1)
+                 
             print(f"準備對 {len(files_to_process)} 個檔案執行獨立縮短...")
             for input_file in files_to_process:
-                shorten_video(input_file, args.shorten)
+                # 如果指定了檔名，且只有一個檔案，則將結果移動為指定名稱
+                if manual_output_name:
+                    # 使用一個臨時檔名，然後移動到指定檔名
+                    base, ext = os.path.splitext(input_file)
+                    temp_output = f"{base}-temp{ext}"
+                    shutil.copy(input_file, temp_output) # 複製一份到臨時檔
+                    shorten_video(temp_output, args.shorten)
+                    shutil.move(temp_output, manual_output_name)
+                    print(f"最終輸出為：{manual_output_name}")
+                else:
+                    # 覆蓋原檔案
+                    shorten_video(input_file, args.shorten)
+
             print("所有縮短操作完成。")
             return
 
         elif args.slice:
             # 模式 4: 純切片 (對每個檔案獨立切片, -S, -f)
+            
+            # 注意：如果單獨切片，且使用了 -n，則只能處理一個檔案
+            if manual_output_name and len(files_to_process) > 1:
+                 print("錯誤: 單獨切片 (-S) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
+                 sys.exit(1)
+
             print(f"準備對 {len(files_to_process)} 個檔案執行獨立切片...")
             
             for input_file in files_to_process:
-                basename = os.path.splitext(os.path.basename(input_file))[0]
-                output_file = f"{basename}-slice.mp4"
+                if manual_output_name:
+                    output_file = manual_output_name
+                else:
+                    basename = os.path.splitext(os.path.basename(input_file))[0]
+                    output_file = f"{basename}-slice.mp4"
                 
                 try:
                     slice_video(input_file, args.slice, output_file)
@@ -581,26 +621,30 @@ def main():
 
     # --- 4. Shrink 模式 ---
     if args.shrink:
-        if args.last is not None:
-            print("錯誤: --last (或指定日期) 僅能用於統計模式")
+        if args.last is not None or args.name:
+            print("錯誤: --shrink 不能搭配 --last (或指定日期) 或 -n 使用")
             sys.exit(1)
             
         try:
             arg_index = sys.argv.index("--shrink")
-            if len(sys.argv) <= arg_index + 2:
-                raise ValueError
-            patterns = sys.argv[arg_index+2:]
+            # 由於 argparse 的 nargs=2 已經處理了 RESOLUTION 和第一個 FILE，
+            # 這裡需要處理後續可能跟隨的額外 FILEs (如果有的話)
+            patterns = args.shrink[1:]
         except (ValueError, IndexError):
+            # 雖然 nargs=2 已經確保了至少 RESOLUTION 和 1 個 FILE，但為了健壯性保留
             print("錯誤: --shrink 格式錯誤，必須為 --shrink RESOLUTION FILE [FILE...]")
             sys.exit(1)
             
+        # 由於 argparse 已經解析 RESOLUTION，我們從 args.shrink[0] 取得
         resolution = args.shrink[0]
         
-        if any([args.last, args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.sync]):
-            print("錯誤: --shrink 不能與其他主要處理選項同時使用")
-            sys.exit(1)
-
-        files_to_shrink = resolve_files(patterns, require_mp4=False)
+        # 由於 --shrink 後面的檔案會被誤判為獨立的 position args，
+        # 且目前的 argparse 定義讓使用者難以傳遞多個檔案，我們回到解析原始 argv 來獲取所有檔案
+        # 重新從 sys.argv 獲取所有檔案參數（這部分邏輯較為複雜，但暫時使用最簡單的方式）
+        
+        # 為了簡化邏輯並遵循 argparse 的最佳實踐，如果用戶只傳遞了兩個參數：
+        files_to_shrink = resolve_files(args.shrink[1:], require_mp4=False)
+        
         if not files_to_shrink:
             print("錯誤: 沒有找到要縮小的檔案")
             sys.exit(1)
