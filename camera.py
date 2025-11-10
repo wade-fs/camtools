@@ -16,6 +16,9 @@ REMOTE_DIR = "/sdcard/DCIM/Camera"
 LOCAL_DIR = os.path.expanduser("~/Pictures/Camera")  # For sync functionality
 TODAY = datetime.now().strftime("%Y%m%d")
 
+# 設置一個常量來區分「沒有提供日期」和「沒有使用 -l」
+LATEST_DATE_CONST = "LATEST_DATE" 
+
 # -------------------
 # 工具函式
 # -------------------
@@ -75,7 +78,7 @@ def get_duration(file_path):
         return 0.0
 
 def show_last(files, target_date=None):
-    """ 顯示最新日期或指定日期的影片清單。 """
+    """ 顯示最新日期或指定日期的影片清單，並依檔名排序。 """
     
     if target_date:
         print(f"🔹 顯示指定日期 {target_date} 的影片清單:")
@@ -94,13 +97,16 @@ def show_last(files, target_date=None):
         print(f"在 {CAM_DIR} 中沒有找到日期為 {date_to_show} 的影片檔案。")
         return
 
+    # 依檔名排序
+    matched.sort(key=os.path.basename)
+
     for f in matched:
         dur = get_duration(f)
         print(f"{f}  ({dur:.2f}s)")
     print(f"總數: {len(matched)}")
 
 def show_date(files):
-    # 根據要求，顯示所有檔案按日期的數量統計，不再區分影片/照片類型
+    """ 顯示所有檔案按日期的數量統計，並依日期排序。 """
     
     all_files = find_files(["mp4", "heic", "HEIC", "jpg", "JPG", "jpeg", "JPEG"])
     date_counts = {}
@@ -114,6 +120,7 @@ def show_date(files):
         print("沒有找到符合日期的檔案")
         return
         
+    # 依日期 (YYYYmmdd) 排序
     sorted_dates = sorted(date_counts.keys())
     
     print("🔹 所有檔案按日期的數量統計:")
@@ -357,9 +364,6 @@ def validate_date_format_opt(date_str):
     except ValueError:
         raise argparse.ArgumentTypeError(f"日期無效: '{date_str}'，請檢查月份和日期是否合法。")
 
-# 設置一個常量來區分「沒有提供日期」和「沒有使用 -l」
-LATEST_DATE_CONST = "LATEST_DATE" 
-
 def main():
     examples = f"""
 範例用法:
@@ -388,9 +392,7 @@ def main():
     parser.add_argument("-l", "--last", nargs='?', const=LATEST_DATE_CONST, type=validate_date_format_opt,
         help="[統計] 顯示最新日期影片的檔案清單 (不帶日期)。或指定日期 (YYYYmmdd)。")
     
-    # 移除 -L 參數
-    
-    parser.add_argument("-d", "--date", action="store_true", help="[統計] 顯示所有檔案按日期的數量統計。")
+    parser.add_argument("-d", "--date", action="store_true", help="[統計] 顯示所有檔案按日期的數量統計，並依日期排序。")
     parser.add_argument("-i", "--info", 
         help="[資訊] 顯示指定檔案（可多個）的長度與總長度。")
     
@@ -413,7 +415,6 @@ def main():
     args = parser.parse_args()
 
     # --- 判斷是否有任何參數被使用 ---
-    # last 現在可能是一個字串或 LATEST_DATE_CONST，所以不能簡單地用 any(vars(args).values())
     is_any_arg_used = any(arg is not None and arg is not False for arg in vars(args).values() if arg != LATEST_DATE_CONST) or args.last
     
     if not is_any_arg_used:
