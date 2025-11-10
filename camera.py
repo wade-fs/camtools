@@ -74,14 +74,26 @@ def get_duration(file_path):
     except:
         return 0.0
 
-def show_last(files):
-    dates = sorted({extract_date(f) for f in files if extract_date(f)})
-    if not dates:
-        print("沒有找到符合的檔案")
+def show_last(files, target_date=None):
+    """ 顯示最新日期或指定日期的影片清單。 """
+    
+    if target_date:
+        print(f"🔹 顯示指定日期 {target_date} 的影片清單:")
+        date_to_show = target_date
+    else:
+        dates = sorted({extract_date(f) for f in files if extract_date(f)})
+        if not dates:
+            print("沒有找到符合的影片檔案")
+            return
+        date_to_show = dates[-1]
+        print(f"🔹 顯示最新日期 {date_to_show} 的影片清單:")
+        
+    matched = [f for f in files if date_to_show in os.path.basename(f)]
+    
+    if not matched:
+        print(f"在 {CAM_DIR} 中沒有找到日期為 {date_to_show} 的影片檔案。")
         return
-    last_date = dates[-1]
-    matched = [f for f in files if last_date in os.path.basename(f)]
-    print(f"最新日期: {last_date}")
+
     for f in matched:
         dur = get_duration(f)
         print(f"{f}  ({dur:.2f}s)")
@@ -89,11 +101,7 @@ def show_last(files):
 
 def show_date(files):
     # 根據要求，顯示所有檔案按日期的數量統計，不再區分影片/照片類型
-    dates = sorted({extract_date(f) for f in files if extract_date(f)})
-    if not dates:
-        print("沒有找到符合日期的檔案")
-        return
-        
+    
     all_files = find_files(["mp4", "heic", "HEIC", "jpg", "JPG", "jpeg", "JPEG"])
     date_counts = {}
     
@@ -102,8 +110,13 @@ def show_date(files):
         if d:
             date_counts[d] = date_counts.get(d, 0) + 1
             
+    if not date_counts:
+        print("沒有找到符合日期的檔案")
+        return
+        
     sorted_dates = sorted(date_counts.keys())
     
+    print("🔹 所有檔案按日期的數量統計:")
     for d in sorted_dates:
         print(f"{d} = {date_counts[d]}")
 
@@ -191,10 +204,8 @@ def slice_video(input_file, slice_range, output_file):
 
     duration = end - start
     
-    # 使用 -i 參數在 -ss 之前，配合 -c copy 會有更精確的切片效果（尤其對於關鍵影格）。
-    # 但會略慢，為了精確性，調整順序
     cmd = [
-        "ffmpeg", "-i", input_file, "-ss", str(start), "-to", str(end), # -to 替代 -t duration, 更精確
+        "ffmpeg", "-i", input_file, "-ss", str(start), "-to", str(end), 
         "-c", "copy", output_file
     ]
     print(f"裁剪 {input_file} {start:.3f}s → {end:.3f}s (共 {duration:.3f}s) (輸出 {output_file})")
@@ -284,34 +295,27 @@ def get_video_info(file_path):
         "-of", "default=noprint_wrappers=1:nokey=1",
         file_path
     ]
-    # print(shlex.join(cmd)) # 移除不必要的 debug 輸出
     result = subprocess.run(cmd, capture_output=True, text=True)
     lines = result.stdout.strip().splitlines()
     duration = 0.0
     width, height = (None, None)
     
-    # 由於 ffprobe 輸出的順序可能是 (width, height, duration) 或只有 duration (非影片)
-    # 這裡調整解析邏輯以避免索引錯誤
     if len(lines) >= 3 and lines[0].isdigit() and lines[1].isdigit():
         width = lines[0]
         height = lines[1]
         try:
             duration = float(lines[2])
         except ValueError:
-            pass # duration 解析失敗，保持 0.0
+            pass
     elif len(lines) == 1 and lines[0].replace('.', '', 1).isdigit():
         try:
             duration = float(lines[0])
         except ValueError:
-            pass # duration 解析失敗，保持 0.0
-    else:
-        # print("⚠️ ffprobe 輸出異常，無法解析。") # 資訊模式不適合報錯
-        pass
+            pass
         
     return duration, width, height
 
 def shrink_video(resolution, file_path):
-    # print(f"shrink_video({resolution}, {file_path})") # 移除不必要的 debug 輸出
     # 驗證解析度格式，例如 "1024x768"
     if not re.match(r'^\d+x\d+$', resolution):
         print("錯誤: 解析度格式必須為 WxH，例如 640x480")
@@ -340,27 +344,34 @@ def shrink_video(resolution, file_path):
 # 主程式
 # -------------------
 
+def validate_date_format_opt(date_str):
+    """驗證日期字串是否為 YYYYmmdd 格式，允許 None (即沒有傳入參數)。"""
+    if date_str is None:
+        return None
+    if not re.match(r'^\d{8}$', date_str):
+        # 這裡需要一個 ArgumentTypeError 來讓 argparse 捕捉錯誤
+        raise argparse.ArgumentTypeError(f"日期格式錯誤: '{date_str}'，必須是 YYYYmmdd 格式。")
+    try:
+        datetime.strptime(date_str, "%Y%m%d")
+        return date_str
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"日期無效: '{date_str}'，請檢查月份和日期是否合法。")
+
+# 設置一個常量來區分「沒有提供日期」和「沒有使用 -l」
+LATEST_DATE_CONST = "LATEST_DATE" 
+
 def main():
     examples = f"""
 範例用法:
   # 1. (統計) 顯示最新一天的影片清單
   ./camera.py -l
-  # 2. (統計) 顯示所有檔案 (不分影片/照片) 的日期數量統計
+  # 2. (統計) 顯示指定日期 (20251109) 的影片清單
+  ./camera.py -l 20251109
+  # 3. (統計) 顯示所有檔案 (不分影片/照片) 的日期數量統計
   ./camera.py -d
-  # 3. (資訊) 顯示多個檔案的長度與總長度 (支援 Camera/ 或 ./ 路徑)
-  ./camera.py -i "fileC.mp4 Camera/fileD.mp4"
-  # 4. (合併) 合併指定的影片檔案 (支援通配符 *、自動加 .mp4)
-  ./camera.py -m -f "20230101_12* 20230101_13"
-  # 5. (縮短) 尋找 Camera/ 或 ./ 下以 'test' 開頭的 mp4 檔
-  #    -> 將所有找到的檔案先合併 -> 將合併結果縮短至 30 秒
-  ./camera.py -s 30 -f "test*"
-  # 6. (切片) 尋找 VID_20240101*.mp4 檔, 對**每個**檔案裁剪5秒到15.5秒區間
-  ./camera.py -S 5-15.5 -f "VID_20240101*"
-  # 7. (合併+縮短) 合併後縮短
+  # 4. (合併+縮短) 合併後縮短
   ./camera.py -m -s 45 -f "VID_20240201*"
-  # 8. (合併+切片) 合併後切片
-  ./camera.py -m -S 1:00-1:15 -f "VID_20240301*"
-  # 9. (同步) 從手機 DCIM/Camera 同步新檔案到 {LOCAL_DIR}
+  # 5. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
   ./camera.py -y
     """
 
@@ -371,7 +382,14 @@ def main():
     )
     
     # 統計/資訊
-    parser.add_argument("-l", "--last", action="store_true", help="[統計] 顯示最新日期影片的檔案清單。")
+    # 使用 nargs='?' 讓 -l 可選地接受一個參數 (日期)
+    # const=LATEST_DATE_CONST: 當只使用 -l 但後面沒有跟參數時，值為 LATEST_DATE_CONST
+    # default=None: 當完全沒有使用 -l 時，值為 None
+    parser.add_argument("-l", "--last", nargs='?', const=LATEST_DATE_CONST, type=validate_date_format_opt,
+        help="[統計] 顯示最新日期影片的檔案清單 (不帶日期)。或指定日期 (YYYYmmdd)。")
+    
+    # 移除 -L 參數
+    
     parser.add_argument("-d", "--date", action="store_true", help="[統計] 顯示所有檔案按日期的數量統計。")
     parser.add_argument("-i", "--info", 
         help="[資訊] 顯示指定檔案（可多個）的長度與總長度。")
@@ -394,38 +412,52 @@ def main():
     
     args = parser.parse_args()
 
-    # Check if no arguments are provided (to show help)
-    if not any(vars(args).values()) or args.files and not (args.merge or args.shorten or args.slice):
+    # --- 判斷是否有任何參數被使用 ---
+    # last 現在可能是一個字串或 LATEST_DATE_CONST，所以不能簡單地用 any(vars(args).values())
+    is_any_arg_used = any(arg is not None and arg is not False for arg in vars(args).values() if arg != LATEST_DATE_CONST) or args.last
+    
+    if not is_any_arg_used:
         parser.print_help()
         sys.exit(0)
 
     # --- 1. 同步模式 (--sync) ---
     if args.sync:
-        if any([args.last, args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink]):
+        # 檢查其他衝突選項 (排除 args.last 可能是 LATEST_DATE_CONST)
+        conflict_args = [args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink]
+        if any(conflict_args) or (args.last is not None):
             print("錯誤: --sync 不能與其他處理選項同時使用")
             sys.exit(1)
         sync_files()
         return
 
     # --- 2. 統計模式 (--last, --date, --info) ---
-    if args.last or args.date:
-        if any([args.info, args.merge, args.files, args.shorten, args.slice, args.shrink]):
-            print("錯誤: --last 或 --date 不能與其他處理選項同時使用")
+    if args.last is not None or args.date:
+        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink]
+        if any(conflict_args):
+            print("錯誤: 統計模式不能與其他處理選項同時使用")
             sys.exit(1)
             
-        # 統計模式只在 CAM_DIR 找檔案
-        if args.last:
-            files = find_files(["mp4"]) # --last 僅適用於影片
-            if not files:
-                print("沒有找到符合的影片檔案")
-                return
-            show_last(files)
-        else: # --date (統計所有檔案)
-            show_date(None) # show_date 內部會查找所有檔案
+        if args.date:
+            if args.last is not None:
+                print("錯誤: --date 不能搭配 --last (或指定日期) 使用")
+                sys.exit(1)
+            show_date(None)
+            return
+
+        # --last 模式 (現在處理日期)
+        files = find_files(["mp4"]) # --last 僅適用於影片
+        
+        target_date = None
+        if args.last != LATEST_DATE_CONST:
+            # 如果 args.last 是有效日期字串
+            target_date = args.last
+            
+        show_last(files, target_date=target_date)
         return
 
     if args.info:
-        if any([args.merge, args.files, args.shorten, args.slice, args.shrink]):
+        conflict_args = [args.merge, args.files, args.shorten, args.slice, args.shrink]
+        if any(conflict_args):
             print("錯誤: --info 不能與其他處理選項同時使用")
             sys.exit(1)
         
@@ -450,6 +482,10 @@ def main():
 
     # --- 3. 處理模式 (合併, 縮短, 切片) ---
     if args.merge or args.shorten or args.slice:
+        if args.last is not None:
+            print("錯誤: --last (或指定日期) 僅能用於統計模式")
+            sys.exit(1)
+            
         if not args.files:
             print("錯誤: --merge, --shorten, 或 --slice 必須搭配 --files 使用。")
             sys.exit(1)
@@ -478,7 +514,9 @@ def main():
             finally:
                 if os.path.exists(concat_file): os.remove(concat_file)
 
-            output_file_base = f"{TODAY}-{re.sub(r'[^\w\-]', '_', args.files)}" # 嘗試用 files 參數命名
+            # 確保檔案名安全
+            safe_file_tag = re.sub(r'[^\w\-]', '_', os.path.basename(args.files.split()[0].replace('*','').replace('?','')))
+            output_file_base = f"{TODAY}-{safe_file_tag}"
             
             if args.shorten:
                 output_file = f"{output_file_base}-shorten.mp4"
@@ -493,14 +531,14 @@ def main():
                     print(f"FFmpeg 切片失敗 for {temp_merged_file}: {e}")
                     sys.exit(1)
                 finally:
-                    if os.path.exists(temp_merged_file): os.remove(temp_merged_file) # 移除暫時合併檔
+                    if os.path.exists(temp_merged_file): os.remove(temp_merged_file) 
             
-            if os.path.exists(temp_merged_file): os.remove(temp_merged_file) # 確保移除
+            if os.path.exists(temp_merged_file): os.remove(temp_merged_file) # 再次確保移除
 
             return
 
         elif args.merge:
-            # 模式 2: 純合併 (--merge, -f)
+            # 模式 2: 純合併 (-m, -f)
             output_file = f"{TODAY}-merge.mp4"
             concat_file = build_concat_file(files_to_process)
             print(f"合併影片輸出: {output_file}")
@@ -542,9 +580,10 @@ def main():
 
     # --- 4. Shrink 模式 ---
     if args.shrink:
-        # 為了正確解析檔案清單，需要從 argv 取得 RESOLUTION 後的參數
-        # RESOLUTION 是 args.shrink[0]
-        # FILEs 是 sys.argv[sys.argv.index("--shrink")+2:]
+        if args.last is not None:
+            print("錯誤: --last (或指定日期) 僅能用於統計模式")
+            sys.exit(1)
+            
         try:
             arg_index = sys.argv.index("--shrink")
             if len(sys.argv) <= arg_index + 2:
@@ -556,7 +595,6 @@ def main():
             
         resolution = args.shrink[0]
         
-        # 這裡需要檢查 --shrink 是否和其他操作模式衝突
         if any([args.last, args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.sync]):
             print("錯誤: --shrink 不能與其他主要處理選項同時使用")
             sys.exit(1)
