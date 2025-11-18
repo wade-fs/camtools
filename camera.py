@@ -399,61 +399,67 @@ def main():
   ./camera.py -l
   # 2. (統計) 顯示指定日期 (20251109) 的影片清單
   ./camera.py -l 20251109
-  # 3. (處理) 合併檔案並指定輸出檔名
+  # 3. (統計) 顯示所有檔案按日期的數量統計
+  ./camera.py -d
+  # 4. (資訊) 顯示指定檔案的長度與總長度
+  ./camera.py -i "video1.mp4 video2.mp4"
+  # 5. (合併) 合併檔案並指定輸出檔名
   ./camera.py -m -f "VID_20240201*" -n my_merged_video.mp4
-  # 4. (處理) 切片並指定輸出檔名 (單檔)
+  # 6. (切片) 切片並指定輸出檔名 (單檔)
   ./camera.py -S 5-15.5 -f video.mp4 -n sliced_clip.mp4
-  # 5. (處理) 縮短檔案長度
+  # 7. (縮短) 縮短檔案長度
   ./camera.py -s 179 -f "20251110*" -n "20251110-割草2.mp4"
-  # 6. (合併+縮短) 合併後縮短
+  # 8. (合併+縮短) 合併後縮短
   ./camera.py -m -s 45 -f "VID_20240201*"
-  # 7. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
+  # 9. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
   ./camera.py -y
-  # 8. (縮小) 縮小影片解析度
+  # 10. (縮小) 縮小影片解析度
   ./camera.py --shrink 1024x768 -f "input.mp4 another.mp4"
-  # 9. (加字幕) 添加字幕到影片
+  # 11. (加字幕) 添加字幕到影片
   ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
     """
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=examples
+        epilog=examples,
+        add_help=False
     )
    
     # 統計/資訊
+    parser.add_argument("-h", "--help", action="help", help=argparse.SUPPRESS)
     parser.add_argument("-l", "--last", nargs='?', const=LATEST_DATE_CONST, type=validate_date_format_opt,
-        help="[統計] 顯示最新日期影片的檔案清單 (不帶日期)。或指定日期 (YYYYmmdd)。")
-    parser.add_argument("-d", "--date", action="store_true", help="[統計] 顯示所有檔案按日期的數量統計，並依日期排序。")
+        help=argparse.SUPPRESS)
+    parser.add_argument("-d", "--date", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("-i", "--info",
-        help="[資訊] 顯示指定檔案（可多個）的長度與總長度。")
+        help=argparse.SUPPRESS)
    
     # 處理功能
     parser.add_argument("-f", "--files",
-        help="[處理] 設定要處理的檔案清單 (可包含通配符)。")
+        help=argparse.SUPPRESS)
     parser.add_argument("-m", "--merge", action="store_true",
-        help="[合併] 合併 --files 指定的影片檔案。")
+        help=argparse.SUPPRESS)
     parser.add_argument("-s", "--shorten", type=float,
-        help="[縮短] 將影片縮短至指定秒數。若搭配 -m，則先合併再縮短。")
+        help=argparse.SUPPRESS)
     parser.add_argument("-S", "--slice",
-        help="[切片] 對影片裁剪區間 (例如: 5-15.5)。若搭配 -m，則先合併再切片。")
+        help=argparse.SUPPRESS)
     parser.add_argument("-n", "--name",
-        help="[處理] 指定輸出目標檔名 (限 -m, -s, -S, --text 搭配使用)。")
+        help=argparse.SUPPRESS)
     parser.add_argument("--shrink", type=str, metavar="RESOLUTION",
-        help="[縮小] 縮小影片到指定解析度 (e.g. 1024x768)，必須搭配 -f 指定檔案。")
+        help=argparse.SUPPRESS)
     parser.add_argument("--text", action="store_true",
-        help="[加字幕] 添加字幕到影片，必須搭配 -f 指定檔案和 --subtitle 指定 SRT 檔。")
+        help=argparse.SUPPRESS)
     parser.add_argument("--subtitle", type=str,
-        help="[加字幕] 指定 SRT 字幕檔，必須搭配 --text 使用。")
+        help=argparse.SUPPRESS)
     parser.add_argument("--font", type=str, default="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        help="[加字幕] 指定字幕字型檔路徑，預設為 NotoSansCJK。")
+        help=argparse.SUPPRESS)
     parser.add_argument("--pos", type=str, default="top-left",
-        help="[加字幕] 指定字幕位置，如 top-left, bottom-center, 80%%,80%%, 0.7,0.6, 100x200。")
+        help=argparse.SUPPRESS)
     parser.add_argument("--size", type=int, default=16,
-        help="[加字幕] 指定字幕大小 (像素)，預設 16。")
+        help=argparse.SUPPRESS)
        
     # 同步功能
     parser.add_argument("-y", "--sync", action="store_true",
-        help="[同步] 從手機 DCIM/Camera 同步新檔案到本地目錄。")
+        help=argparse.SUPPRESS)
    
     args = parser.parse_args()
     # --- 判斷是否有任何參數被使用 ---
