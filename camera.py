@@ -308,18 +308,18 @@ def shrink_video(resolution, file_path):
 def parse_pos(pos_str, width, height):
     pos_str = pos_str.lower()
     pos_map = {
-        "top-left": {"Alignment": "9", "MarginV": "20"},
-        "top-center": {"Alignment": "10", "MarginV": "20"},
-        "top-right": {"Alignment": "11", "MarginV": "20"},
-        "bottom-left": {"Alignment": "1", "MarginV": "20"},
-        "bottom-center": {"Alignment": "2", "MarginV": "20"},
-        "bottom-right": {"Alignment": "3", "MarginV": "20"},
-        "middle-left": {"Alignment": "5", "MarginV": "0"},
-        "middle-center": {"Alignment": "6", "MarginV": "0"},
-        "middle-right": {"Alignment": "7", "MarginV": "0"},
-        "top": {"Alignment": "10", "MarginV": "20"},
-        "bottom": {"Alignment": "2", "MarginV": "20"},
-        "center": {"Alignment": "6", "MarginV": "0"},
+        "top-left": {"Alignment": "7", "MarginV": "0"},
+        "top-center": {"Alignment": "8", "MarginV": "0"},
+        "top-right": {"Alignment": "9", "MarginV": "0"},
+        "bottom-left": {"Alignment": "1", "MarginV": "0"},
+        "bottom-center": {"Alignment": "2", "MarginV": "0"},
+        "bottom-right": {"Alignment": "3", "MarginV": "0"},
+        "middle-left": {"Alignment": "4", "MarginV": "0"},
+        "middle-center": {"Alignment": "5", "MarginV": "0"},
+        "middle-right": {"Alignment": "6", "MarginV": "0"},
+        "top": {"Alignment": "8", "MarginV": "0"},
+        "bottom": {"Alignment": "2", "MarginV": "0"},
+        "center": {"Alignment": "5", "MarginV": "0"},
     }
     if pos_str in pos_map:
         return pos_map[pos_str]
@@ -343,7 +343,7 @@ def parse_pos(pos_str, width, height):
         if not is_percent_x and x <= 1 and ',' in pos_str:  # assume 0-1 if <=1 and no %
             x *= width
             y *= height if not is_percent_y and y_val <= 1 else y
-        return {"Alignment": "0", "MarginL": str(int(x)), "MarginV": str(int(y))}
+        return {"Alignment": "7", "MarginL": str(int(x)), "MarginV": str(int(y))}
     else:
         print(f"錯誤: 無效的位置格式 '{pos_str}'")
         sys.exit(1)
