@@ -305,22 +305,26 @@ def shrink_video(resolution, file_path):
     print("執行命令：", " ".join(cmd))
     subprocess.run(cmd, check=True)
     print(f"✅ 已輸出: {output_file}")
+
 def parse_pos(pos_str, width, height):
     pos_str = pos_str.lower()
+
     pos_map = {
-        "top-left": {"Alignment": "7", "MarginV": "0"},
-        "top-center": {"Alignment": "8", "MarginV": "0"},
-        "top-right": {"Alignment": "9", "MarginV": "0"},
-        "bottom-left": {"Alignment": "1", "MarginV": "0"},
-        "bottom-center": {"Alignment": "2", "MarginV": "0"},
-        "bottom-right": {"Alignment": "3", "MarginV": "0"},
-        "middle-left": {"Alignment": "4", "MarginV": "0"},
-        "middle-center": {"Alignment": "5", "MarginV": "0"},
-        "middle-right": {"Alignment": "6", "MarginV": "0"},
-        "top": {"Alignment": "8", "MarginV": "0"},
-        "bottom": {"Alignment": "2", "MarginV": "0"},
-        "center": {"Alignment": "5", "MarginV": "0"},
+        "top-left": {"Alignment": "4", "MarginV": "10"},       # 正確
+        "top-center": {"Alignment": "6", "MarginV": "0"},      # 正確
+        "top-right": {"Alignment": "7", "MarginV": "10"},      # 正確
+        "middle-left": {"Alignment": "8", "MarginV": "0"},     # 正確
+        "middle-center": {"Alignment": "5", "MarginV": "0"},   # 實際顯示 top-left
+        "middle-right": {"Alignment": "6", "MarginV": "0"},    # 實際顯示 top-center
+        "bottom-left": {"Alignment": "1", "MarginV": "10"},    # 正確
+        "bottom-center": {"Alignment": "2", "MarginV": "10"},  # 正確
+        "bottom-right": {"Alignment": "3", "MarginV": "10"},   # 正確
+        "top": {"Alignment": "6", "MarginV": "0"},             # 正確
+        "bottom": {"Alignment": "2", "MarginV": "10"},         # 正確
+        "center": {"Alignment": "5", "MarginV": "0"},          # 實際顯示 top-left
     }
+
+
     if pos_str in pos_map:
         return pos_map[pos_str]
     # parse coordinate
