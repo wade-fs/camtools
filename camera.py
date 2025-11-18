@@ -305,19 +305,76 @@ def shrink_video(resolution, file_path):
     print("執行命令：", " ".join(cmd))
     subprocess.run(cmd, check=True)
     print(f"✅ 已輸出: {output_file}")
-def add_subtitle(input_file, subtitle_file, output_file):
+def parse_pos(pos_str, width, height):
+    pos_str = pos_str.lower()
+    pos_map = {
+        "top-left": {"Alignment": "9", "MarginV": "20"},
+        "top-center": {"Alignment": "10", "MarginV": "20"},
+        "top-right": {"Alignment": "11", "MarginV": "20"},
+        "bottom-left": {"Alignment": "1", "MarginV": "20"},
+        "bottom-center": {"Alignment": "2", "MarginV": "20"},
+        "bottom-right": {"Alignment": "3", "MarginV": "20"},
+        "middle-left": {"Alignment": "5", "MarginV": "0"},
+        "middle-center": {"Alignment": "6", "MarginV": "0"},
+        "middle-right": {"Alignment": "7", "MarginV": "0"},
+        "top": {"Alignment": "10", "MarginV": "20"},
+        "bottom": {"Alignment": "2", "MarginV": "20"},
+        "center": {"Alignment": "6", "MarginV": "0"},
+    }
+    if pos_str in pos_map:
+        return pos_map[pos_str]
+    # parse coordinate
+    pos_str = pos_str.replace('x', ',')
+    match = re.match(r'([\d.%]+)\s*,\s*([\d.%]+)', pos_str)
+    if match:
+        x_str, y_str = match.groups()
+        is_percent_x = '%' in x_str
+        is_percent_y = '%' in y_str
+        x_val = float(x_str.rstrip('%'))
+        y_val = float(y_str.rstrip('%'))
+        if is_percent_x:
+            x = x_val / 100 * width
+        else:
+            x = x_val
+        if is_percent_y:
+            y = y_val / 100 * height
+        else:
+            y = y_val
+        if not is_percent_x and x <= 1 and ',' in pos_str:  # assume 0-1 if <=1 and no %
+            x *= width
+            y *= height if not is_percent_y and y_val <= 1 else y
+        return {"Alignment": "0", "MarginL": str(int(x)), "MarginV": str(int(y))}
+    else:
+        print(f"錯誤: 無效的位置格式 '{pos_str}'")
+        sys.exit(1)
+def add_subtitle(input_file, subtitle_file, output_file, font, pos, size):
     """將 SRT 字幕檔加到影片中，並輸出到指定的 output_file。"""
     # 檢查字幕檔是否存在
     if not os.path.exists(subtitle_file):
         print(f"錯誤: 找不到字幕檔案 {subtitle_file}")
         sys.exit(1)
+    # 取得影片資訊
+    _, width, height = get_video_info(input_file)
+    if width is None or height is None:
+        print(f"錯誤: 無法取得影片解析度 {input_file}")
+        sys.exit(1)
+    width = int(width)
+    height = int(height)
+    # 解析位置
+    pos_styles = parse_pos(pos, width, height)
+    # 建構 styles
+    styles = pos_styles.copy()
+    styles["Fontsize"] = str(size)
+    styles["Fontname"] = font
+    force_style_str = ','.join(f"{k}={v}" for k,v in styles.items())
     cmd = [
         "ffmpeg", "-i", input_file,
-        "-vf", f"subtitles={subtitle_file}",
+        "-vf", f"subtitles={shlex.quote(subtitle_file)}:force_style='{force_style_str}'",
         "-c:a", "copy",
         output_file
     ]
     print(f"添加字幕 {subtitle_file} 到 {input_file} (輸出 {output_file})")
+    print(f"執行命令： {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
     print(f"完成添加字幕輸出：{output_file}")
 # -------------------
@@ -355,7 +412,7 @@ def main():
   # 8. (縮小) 縮小影片解析度
   ./camera.py --shrink 1024x768 -f "input.mp4 another.mp4"
   # 9. (加字幕) 添加字幕到影片
-  ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4
+  ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
     """
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
@@ -387,6 +444,12 @@ def main():
         help="[加字幕] 添加字幕到影片，必須搭配 -f 指定檔案和 --subtitle 指定 SRT 檔。")
     parser.add_argument("--subtitle", type=str,
         help="[加字幕] 指定 SRT 字幕檔，必須搭配 --text 使用。")
+    parser.add_argument("--font", type=str, default="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        help="[加字幕] 指定字幕字型檔路徑，預設為 NotoSansCJK。")
+    parser.add_argument("--pos", type=str, default="top-left",
+        help="[加字幕] 指定字幕位置，如 top-left, bottom-center, 80%%,80%%, 0.7,0.6, 100x200。")
+    parser.add_argument("--size", type=int, default=16,
+        help="[加字幕] 指定字幕大小 (像素)，預設 16。")
        
     # 同步功能
     parser.add_argument("-y", "--sync", action="store_true",
@@ -402,7 +465,7 @@ def main():
     # --- 1. 同步模式 (--sync) ---
     if args.sync:
         # 檢查其他衝突選項 (排除 args.last 可能是 LATEST_DATE_CONST)
-        conflict_args = [args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle]
+        conflict_args = [args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.font, args.pos, args.size]
         if any(conflict_args) or (args.last is not None):
             print("錯誤: --sync 不能與其他處理選項同時使用")
             sys.exit(1)
@@ -410,7 +473,7 @@ def main():
         return
     # --- 2. 統計模式 (--last, --date, --info) ---
     if args.last is not None or args.date:
-        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle]
+        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.font, args.pos, args.size]
         if any(conflict_args):
             print("錯誤: 統計模式不能與其他處理選項同時使用")
             sys.exit(1)
@@ -432,7 +495,7 @@ def main():
         show_last(files, target_date=target_date)
         return
     if args.info:
-        conflict_args = [args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle]
+        conflict_args = [args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.font, args.pos, args.size]
         if any(conflict_args):
             print("錯誤: --info 不能與其他處理選項同時使用")
             sys.exit(1)
@@ -644,7 +707,7 @@ def main():
                 output_file = f"{basename}-subtitled.mp4"
                
             try:
-                add_subtitle(input_file, args.subtitle, output_file)
+                add_subtitle(input_file, args.subtitle, output_file, args.font, args.pos, args.size)
             except subprocess.CalledProcessError as e:
                 print(f"添加字幕失敗 for {input_file}: {e}")
            
