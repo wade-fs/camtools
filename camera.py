@@ -278,7 +278,10 @@ def sync_files():
     print("同步完成！")
 
 def get_video_info(file_path):
-    """🔹 取得影片的長度與解析度資訊"""
+    """🔹 取得影片的長度與解析度資訊
+    回傳 (duration: float, width: int|None, height: int|None)
+    此函式會盡量將 width/height 轉為 int；若解析度無法取得則回傳 None。
+    """
     cmd = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
@@ -287,24 +290,42 @@ def get_video_info(file_path):
         "-of", "default=noprint_wrappers=1:nokey=1",
         file_path
     ]
+    # 執行 ffprobe
     result = subprocess.run(cmd, capture_output=True, text=True)
     lines = result.stdout.strip().splitlines()
+
     duration = 0.0
-    width, height = (None, None)
-   
-    if len(lines) >= 3 and lines[0].isdigit() and lines[1].isdigit():
-        width = lines[0]
-        height = lines[1]
-        try:
-            duration = float(lines[2])
-        except ValueError:
-            pass
-    elif len(lines) == 1 and lines[0].replace('.', '', 1).isdigit():
-        try:
-            duration = float(lines[0])
-        except ValueError:
-            pass
-       
+    width = None
+    height = None
+
+    # ffprobe 典型輸出： width\nheight\nduration\n
+    try:
+        if len(lines) >= 3:
+            # 安全轉型
+            try:
+                width = int(lines[0])
+            except (ValueError, TypeError):
+                width = None
+            try:
+                height = int(lines[1])
+            except (ValueError, TypeError):
+                height = None
+            try:
+                duration = float(lines[2])
+            except (ValueError, TypeError):
+                duration = 0.0
+        elif len(lines) == 1:
+            # 只有 duration
+            try:
+                duration = float(lines[0])
+            except (ValueError, TypeError):
+                duration = 0.0
+    except Exception:
+        # 防止意外的解析錯誤
+        duration = 0.0
+        width = None
+        height = None
+
     return duration, width, height
 
 def shrink_video(resolution, file_path):
@@ -362,8 +383,7 @@ def add_subtitle(input_file, subtitle_file, output_file, font, pos, size):
     if width is None or height is None:
         print(f"錯誤: 無法取得影片解析度 {input_file}")
         sys.exit(1)
-    width = int(width)
-    height = int(height)
+    # width/height 已為 int（或 None），此處可直接使用
     # 解析位置
     pos_styles = parse_pos(pos, width, height)
     # 建構 styles
@@ -455,8 +475,10 @@ def main():
     parser.add_argument("-l", "--last", nargs='?', const=LATEST_DATE_CONST, type=validate_date_format_opt,
         help=argparse.SUPPRESS)
     parser.add_argument("-d", "--date", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("-i", "--info",
-        help=argparse.SUPPRESS)
+    parser.add_argument("-i", "--info", action="store_true", help=argparse.SUPPRESS)
+    # 加上 info sort / sum 選項（若呼叫者需要）
+    parser.add_argument("--info-sort", choices=["name","duration","resolution"], default="name", help=argparse.SUPPRESS)
+    parser.add_argument("--info-sum", action="store_true", help=argparse.SUPPRESS)
    
     # 處理功能
     parser.add_argument("-f", "--files",
@@ -522,29 +544,56 @@ def main():
            
         show_last(files, target_date=target_date)
         return
+
     if args.info:
-        conflict_args = [args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle]
-        if any(conflict_args):
-            print("錯誤: --info 不能與其他處理選項同時使用")
+        if not args.files:
+            print("錯誤: --info 必須搭配 -f 使用")
             sys.exit(1)
-       
-        file_names = args.info.split()
-        files_to_info = resolve_files(file_names, require_mp4=False)
-   
-        if not files_to_info:
-            print("沒有找到檔案或檔案不存在")
-            return
-   
-        total_duration_val = 0.0
-        for f in files_to_info:
-            duration, width, height = get_video_info(f)
-            total_duration_val += duration
-            if width and height:
-                print(f"{f} {duration:.2f}秒 ({width}x{height})")
+
+        files = resolve_files(args.files.split(), require_mp4=False)
+        if not files:
+            print("沒有找到符合的檔案")
+            sys.exit(1)
+
+        infos = []
+        total_duration = 0.0
+
+        for f in files:
+            duration, w, h = get_video_info(f)
+            total_duration += duration
+            # w, h 已保證為 int 或 None
+            infos.append({
+                "file": f,
+                "duration": duration,
+                "width": w,
+                "height": h,
+                "pixels": (w or 0) * (h or 0)
+            })
+
+        # -------- sorting --------
+        if args.info_sort == "duration":
+            infos.sort(key=lambda x: x["duration"])
+        elif args.info_sort == "resolution":
+            infos.sort(key=lambda x: x["pixels"])
+        else:
+            infos.sort(key=lambda x: os.path.basename(x["file"]))
+
+        # -------- output --------
+        for i in infos:
+            if i["width"] and i["height"]:
+                print(f"{i['file']}  {i['duration']:.2f}s  ({i['width']}x{i['height']})")
             else:
-                print(f"{f} {duration:.2f}秒")
-        print(f"總長度 {total_duration_val:.2f}秒")
+                print(f"{i['file']}  {i['duration']:.2f}s")
+
+        if args.info_sum:
+            print("-" * 33)
+            mins = int(total_duration // 60)
+            secs = total_duration % 60
+            print(f"總影片數量 : {len(infos)}")
+            print(f"總播放時間 : {mins}分{secs:.2f}秒")
+
         return
+
     # --- 3. 處理模式 (合併, 縮短, 切片) ---
     if args.merge or args.shorten or args.slice:
         if args.last is not None:
