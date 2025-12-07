@@ -9,13 +9,16 @@ import sys
 from datetime import datetime
 import shutil
 from pathlib import Path
+
 # Configuration
+
 CAM_DIR = "Camera"
 REMOTE_DIR = "/sdcard/DCIM/Camera"
 LOCAL_DIR = os.path.expanduser("~/Pictures/Camera") # For sync functionality
 TODAY = datetime.now().strftime("%Y%m%d")
-# 設置一個常量來區分「沒有提供日期」和「沒有使用 -l」
 LATEST_DATE_CONST = "LATEST_DATE"
+DEFAULT_FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+
 # -------------------
 # 工具函式
 # -------------------
@@ -25,6 +28,7 @@ def find_files(exts):
     for ext in exts:
         files.extend(glob.glob(os.path.join(CAM_DIR, f"*.{ext}")))
     return files
+
 def resolve_files(patterns, require_mp4=True):
     """
     根據使用者輸入的 patterns (可能包含通配符或無副檔名) 尋找檔案。
@@ -37,9 +41,9 @@ def resolve_files(patterns, require_mp4=True):
        
         # 處理副檔名：如果要求 .mp4 且使用者未指定副檔名，則強制加上 .mp4
         if require_mp4 and not ext and pattern not in ['.', CAM_DIR]: # 避免對 '.' 和 'Camera' 加上 .mp4
-             pattern_to_search = pattern + ".mp4"
+            pattern_to_search = pattern + ".mp4"
         else:
-             pattern_to_search = pattern
+            pattern_to_search = pattern
         # 搜尋當前目錄和 Camera/
         for search_dir in ['.', CAM_DIR]:
             if os.path.isabs(pattern_to_search):
@@ -52,10 +56,12 @@ def resolve_files(patterns, require_mp4=True):
                 if os.path.isfile(f):
                     found_files.add(f)
     return sorted(list(found_files))
+
 def extract_date(filename):
     basename = os.path.basename(filename)
     m = re.match(r'(?:VID_)?(\d{8})', basename)
     return m.group(1) if m else None
+
 def get_duration(file_path):
     """取得影片長度（秒）"""
     out = subprocess.run(
@@ -67,6 +73,7 @@ def get_duration(file_path):
         return float(out.stdout.strip())
     except:
         return 0.0
+
 def show_last(files, target_date=None):
     """ 顯示最新日期或指定日期的影片清單，並依檔名排序。 """
    
@@ -92,6 +99,7 @@ def show_last(files, target_date=None):
         dur = get_duration(f)
         print(f"{f} ({dur:.2f}s)")
     print(f"總數: {len(matched)}")
+
 def show_date(files):
     """ 顯示所有檔案按日期的數量統計，並依日期排序。 """
    
@@ -113,12 +121,14 @@ def show_date(files):
     print("🔹 所有檔案按日期的數量統計:")
     for d in sorted_dates:
         print(f"{d} = {date_counts[d]}")
+
 def build_concat_file(files):
     list_file = os.path.join("/tmp", f"fflist.{os.getpid()}.txt")
     with open(list_file, "w") as f:
         for file_path in files:
             f.write(f"file '{os.path.abspath(file_path)}'\n")
     return list_file
+
 def shorten_video(input_file, target_seconds):
     """縮短影片至目標秒數。會覆蓋 input_file。"""
     duration = get_duration(input_file)
@@ -154,12 +164,15 @@ def shorten_video(input_file, target_seconds):
         filter_complex = f"[0:v]{pts_str}[v]"
         cmd.extend(["-filter_complex", filter_complex, "-map", "[v]", "-an", tmp_out])
     print(f"執行 FFmpeg: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    # 不把 stdout 全部吃掉，這樣 ffmpeg 出錯時可以看見原因
+    subprocess.run(cmd, check=True)
    
+    # 用縮短後的暫存檔替換 input_file（覆蓋）
     shutil.move(tmp_out, input_file)
    
     new_duration = get_duration(input_file)
     print(f"縮短完成，新長度為 {new_duration:.2f}s")
+
 def parse_time_str(ts):
     """將 'mm:ss.ms' 或 'ss.ms' 轉成秒數"""
     if ':' in ts:
@@ -167,6 +180,7 @@ def parse_time_str(ts):
         return int(m) * 60 + float(s)
     else:
         return float(ts)
+
 def slice_video(input_file, slice_range, output_file):
     """裁剪影片區間並輸出到指定的 output_file。"""
     if '-' not in slice_range:
@@ -191,6 +205,7 @@ def slice_video(input_file, slice_range, output_file):
     print(f"裁剪 {input_file} {start:.3f}s → {end:.3f}s (共 {duration:.3f}s) (輸出 {output_file})")
     subprocess.run(cmd, check=True)
     print(f"完成切片輸出：{output_file}")
+
 # -------------------
 # 同步功能 (來自 sync-camera.py)
 # -------------------
@@ -208,6 +223,7 @@ def run_adb_command(args, capture_output=True, check=True):
         if check:
             raise
         return e
+
 def check_adb():
     """Check if adb is installed and a device is connected."""
     if not shutil.which("adb"):
@@ -218,12 +234,14 @@ def check_adb():
     except subprocess.CalledProcessError:
         print("錯誤: 沒有找到 adb 裝置，請確認已連線")
         sys.exit(1)
+
 def check_remote_dir():
     """Check if the remote Camera directory exists."""
     result = run_adb_command(["shell", f"[ -d '{REMOTE_DIR}' ] && echo exists"], check=False)
     if result.returncode != 0 or "exists" not in result.stdout:
         print(f"錯誤: 遠端目錄 {REMOTE_DIR} 不存在")
         sys.exit(1)
+
 def get_file_list(directory, is_remote=False):
     """Get sorted list of relative file paths from a directory."""
     if is_remote:
@@ -237,6 +255,7 @@ def get_file_list(directory, is_remote=False):
             if path.is_file():
                 files.append(str(path.relative_to(directory)))
     return sorted(files)
+
 def sync_files():
     """Sync files from REMOTE_DIR to LOCAL_DIR."""
     check_adb()
@@ -248,14 +267,16 @@ def sync_files():
     if not new_files:
         print("✅ 已經是最新狀態，沒有新檔案")
         return
-       
+        
     for file in new_files:
         if file:
             local_path = os.path.join(LOCAL_DIR, file)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             print(f"正在下載 {file}...")
             run_adb_command(["pull", f"{REMOTE_DIR}/{file}", local_path])
+            print(f"已下載: {local_path}")
     print("同步完成！")
+
 def get_video_info(file_path):
     """🔹 取得影片的長度與解析度資訊"""
     cmd = [
@@ -285,6 +306,7 @@ def get_video_info(file_path):
             pass
        
     return duration, width, height
+
 def shrink_video(resolution, file_path):
     # 驗證解析度格式，例如 "1024x768"
     if not re.match(r'^\d+x\d+$', resolution):
@@ -328,6 +350,7 @@ def parse_pos(pos_str, width, height):
         return pos_map[pos_str]
     print(f"錯誤: 無效的位置格式 '{pos_str}'")
     sys.exit(1)
+
 def add_subtitle(input_file, subtitle_file, output_file, font, pos, size):
     """將 SRT 字幕檔加到影片中，並輸出到指定的 output_file。"""
     # 檢查字幕檔是否存在
@@ -357,7 +380,25 @@ def add_subtitle(input_file, subtitle_file, output_file, font, pos, size):
     print(f"添加字幕 {subtitle_file} 到 {input_file} (輸出 {output_file})")
     print(f"執行命令： {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
-    print(f"完成添加字幕輸出：{output_file}")
+    print(f"✅ 完成添加字幕輸出：{output_file}")
+
+def mute_video(input_file, output_file=None):
+    if not output_file:
+        base, ext = os.path.splitext(input_file)
+        output_file = f"{base}_mute{ext}"
+
+    print(f"靜音處理：{os.path.basename(input_file)} → {os.path.basename(output_file)}")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_file,
+        "-c", "copy",       # 影片流直接 copy，不重新編碼
+        "-an",              # 移除所有音訊
+        output_file
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"✅ 靜音完成：{output_file}")
+    return output_file
+
 # -------------------
 # 主程式
 # -------------------
@@ -373,6 +414,7 @@ def validate_date_format_opt(date_str):
         return date_str
     except ValueError:
         raise argparse.ArgumentTypeError(f"日期無效: '{date_str}'，請檢查月份和日期是否合法。")
+
 def main():
     examples = f"""
 範例用法:
@@ -398,6 +440,8 @@ def main():
   ./camera.py --shrink 1024x768 -f "input.mp4 another.mp4"
   # 11. (加字幕) 添加字幕到影片
   ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
+  # 12. (靜音) 將影片去除音軌
+  ./camera.py --mute -f "input.mp4"
     """
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
@@ -431,21 +475,18 @@ def main():
         help=argparse.SUPPRESS)
     parser.add_argument("--subtitle", type=str,
         help=argparse.SUPPRESS)
-    parser.add_argument("--font", type=str, default="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    parser.add_argument("--font", type=str, default=DEFAULT_FONT_PATH,
         help=argparse.SUPPRESS)
-    parser.add_argument("--pos", type=str, default="top-left",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--size", type=int, default=16,
-        help=argparse.SUPPRESS)
-       
-    # 同步功能
-    parser.add_argument("-y", "--sync", action="store_true",
-        help=argparse.SUPPRESS)
-   
+    parser.add_argument("--pos", type=str, default="top-left", help=argparse.SUPPRESS)
+    parser.add_argument("--size", type=int, default=16, help=argparse.SUPPRESS)
+    parser.add_argument("-y", "--sync", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument( "-u", "--mute", action="store_true", help=argparse.SUPPRESS)
+
+
     args = parser.parse_args()
     # --- 判斷是否有任何參數被使用 ---
     is_any_arg_used = any(arg is not None and arg is not False for arg in vars(args).values() if arg != LATEST_DATE_CONST) or args.last
-   
+
     if not is_any_arg_used:
         parser.print_help()
         sys.exit(0)
@@ -453,7 +494,6 @@ def main():
     if args.sync:
         # 檢查其他衝突選項 (排除 args.last 可能是 LATEST_DATE_CONST)
         conflict_args = [args.date, args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle]
-        print(f"sync: conflict_args={conflict_args} or last={args.last}")
         if any(conflict_args) or (args.last is not None):
             print("錯誤: --sync 不能與其他處理選項同時使用")
             sys.exit(1)
@@ -465,7 +505,7 @@ def main():
         if any(conflict_args):
             print("錯誤: 統計模式不能與其他處理選項同時使用")
             sys.exit(1)
-           
+            
         if args.date:
             if args.last is not None:
                 print("錯誤: --date 不能搭配 --last (或指定日期) 使用")
@@ -510,11 +550,11 @@ def main():
         if args.last is not None:
             print("錯誤: --last (或指定日期) 僅能用於統計模式")
             sys.exit(1)
-           
+            
         if not args.files:
             print("錯誤: --merge, --shorten, 或 --slice 必須搭配 --files 使用。")
             sys.exit(1)
-           
+            
         # 處理 -n 的邏輯
         manual_output_name = args.name
        
@@ -538,6 +578,8 @@ def main():
                                 check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg 暫時合併失敗: {e}")
+                if os.path.exists(concat_file): os.remove(concat_file)
+                if os.path.exists(temp_merged_file): os.remove(temp_merged_file)
                 sys.exit(1)
             finally:
                 if os.path.exists(concat_file): os.remove(concat_file)
@@ -549,25 +591,27 @@ def main():
                 action = "shorten" if args.shorten else "slice"
                 output_file = f"{TODAY}-{safe_file_tag}-{action}.mp4"
            
-            if args.shorten:
-                # 縮短會覆蓋
-                shutil.move(temp_merged_file, output_file)
-                shorten_video(output_file, args.shorten)
-           
-            elif args.slice:
-                # 切片會產生新檔
-                try:
-                    # slice_video 會自動將 temp_merged_file 處理成 output_file
+            try:
+                if args.shorten:
+                    # 在中介檔上先執行縮短，完成後再移動到最終檔名
+                    shorten_video(temp_merged_file, args.shorten)
+                    shutil.move(temp_merged_file, output_file)
+                    print(f"✅ 成功建立檔案: {output_file}")
+                elif args.slice:
+                    # 切片會產生新檔：slice_video(輸入, 區間, 輸出)
                     slice_video(temp_merged_file, args.slice, output_file)
-                except subprocess.CalledProcessError as e:
-                    print(f"FFmpeg 切片失敗 for {temp_merged_file}: {e}")
-                    sys.exit(1)
-                finally:
-                    # 切片成功或失敗，都應清除中介檔
-                    if os.path.exists(temp_merged_file): os.remove(temp_merged_file)
-           
-            # 再次確保移除中介檔，以防萬一
-            if os.path.exists(temp_merged_file): os.remove(temp_merged_file)
+                    print(f"✅ 成功建立檔案: {output_file}")
+            except subprocess.CalledProcessError as e:
+                print(f"FFmpeg 處理失敗: {e}")
+                if os.path.exists(temp_merged_file): os.remove(temp_merged_file)
+                sys.exit(1)
+            finally:
+                # 無論成功或失敗，都嘗試清除中介檔（如果還存在）
+                if os.path.exists(temp_merged_file):
+                    try:
+                        os.remove(temp_merged_file)
+                    except:
+                        pass
             return
         elif args.merge:
             # 模式 2: 純合併 (-m, -f)
@@ -578,7 +622,7 @@ def main():
            
             try:
                 subprocess.run(["ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_file, "-c", "copy", output_file], check=True)
-                print(f"完成，輸出檔案：{output_file}")
+                print(f"✅ 成功建立檔案：{output_file}")
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg 合併失敗: {e}")
                 sys.exit(1)
@@ -591,8 +635,8 @@ def main():
            
             # 注意：如果單獨縮短，且使用了 -n，則只能處理一個檔案
             if manual_output_name and len(files_to_process) > 1:
-                 print("錯誤: 單獨縮短 (-s) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
-                 sys.exit(1)
+                print("錯誤: 單獨縮短 (-s) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
+                sys.exit(1)
                 
             print(f"準備對 {len(files_to_process)} 個檔案執行獨立縮短...")
             for input_file in files_to_process:
@@ -602,12 +646,20 @@ def main():
                     base, ext = os.path.splitext(input_file)
                     temp_output = f"{base}-temp{ext}"
                     shutil.copy(input_file, temp_output) # 複製一份到臨時檔
-                    shorten_video(temp_output, args.shorten)
-                    shutil.move(temp_output, manual_output_name)
-                    print(f"最終輸出為：{manual_output_name}")
+                    try:
+                        shorten_video(temp_output, args.shorten)
+                        shutil.move(temp_output, manual_output_name)
+                        print(f"✅ 成功建立檔案: {manual_output_name}")
+                    except subprocess.CalledProcessError as e:
+                        print(f"縮短失敗 {input_file}: {e}")
+                        if os.path.exists(temp_output): os.remove(temp_output)
                 else:
                     # 覆蓋原檔案
-                    shorten_video(input_file, args.shorten)
+                    try:
+                        shorten_video(input_file, args.shorten)
+                        print(f"✅ 成功建立檔案: {input_file} (已覆蓋原檔)")
+                    except subprocess.CalledProcessError as e:
+                        print(f"縮短失敗 {input_file}: {e}")
             print("所有縮短操作完成。")
             return
         elif args.slice:
@@ -615,8 +667,8 @@ def main():
            
             # 注意：如果單獨切片，且使用了 -n，則只能處理一個檔案
             if manual_output_name and len(files_to_process) > 1:
-                 print("錯誤: 單獨切片 (-S) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
-                 sys.exit(1)
+                print("錯誤: 單獨切片 (-S) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
+                sys.exit(1)
             print(f"準備對 {len(files_to_process)} 個檔案執行獨立切片...")
            
             for input_file in files_to_process:
@@ -628,6 +680,7 @@ def main():
                
                 try:
                     slice_video(input_file, args.slice, output_file)
+                    print(f"✅ 成功建立檔案: {output_file}")
                 except subprocess.CalledProcessError as e:
                     print(f"FFmpeg 切片失敗 for {input_file}: {e}")
            
@@ -638,11 +691,11 @@ def main():
         if args.last is not None or args.text or args.subtitle:
             print("錯誤: --shrink 不能搭配 --last (或指定日期) 或 --text 使用")
             sys.exit(1)
-           
+            
         if not args.files:
             print("錯誤: --shrink 必須搭配 -f 指定檔案")
             sys.exit(1)
-           
+            
         resolution = args.shrink
         patterns = args.files.split()
        
@@ -663,15 +716,15 @@ def main():
         if args.last is not None or args.shrink:
             print("錯誤: --text 不能搭配 --last (或指定日期) 或 --shrink 使用")
             sys.exit(1)
-           
+            
         if not args.files:
             print("錯誤: --text 必須搭配 -f 指定檔案")
             sys.exit(1)
-           
+            
         if not args.subtitle:
             print("錯誤: --text 必須搭配 --subtitle 指定 SRT 檔")
             sys.exit(1)
-           
+            
         manual_output_name = args.name
            
         patterns = args.files.split()
@@ -683,8 +736,8 @@ def main():
            
         # 注意：如果使用了 -n，則只能處理一個檔案
         if manual_output_name and len(files_to_process) > 1:
-             print("錯誤: 加字幕 (--text) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
-             sys.exit(1)
+            print("錯誤: 加字幕 (--text) 並指定輸出檔名 (-n) 時，一次只能處理一個檔案。")
+            sys.exit(1)
                 
         print(f"準備對 {len(files_to_process)} 個檔案添加字幕...")
         for input_file in files_to_process:
@@ -696,14 +749,52 @@ def main():
                
             try:
                 add_subtitle(input_file, args.subtitle, output_file, args.font, args.pos, args.size)
+                print(f"✅ 成功建立檔案: {output_file}")
             except subprocess.CalledProcessError as e:
                 print(f"添加字幕失敗 for {input_file}: {e}")
            
         print("所有添加字幕操作完成。")
         return
+    # --- 移除音軌 (-u / --mute) ---
+    if args.mute:
+        if args.last is not None or args.shrink or args.text:
+            print("錯誤: --mute 不能與 --last、--shrink 或 --text 同時使用")
+            sys.exit(1)
+         
+        if not args.files:
+            print("錯誤: --mute 必須搭配 -f 指定要靜音的影片")
+            sys.exit(1)
+         
+        manual_output_name = args.name
+        patterns = args.files.split()
+        files_to_mute = resolve_files(patterns, require_mp4=False)
+         
+        if not files_to_mute:
+            print("錯誤: 沒有找到要靜音的影片檔案")
+            sys.exit(1)
+         
+        # 使用 -n 指定輸出檔名時只能處理一個檔案（跟其他功能保持一致）
+        if manual_output_name and len(files_to_mute) > 1:
+            print("錯誤: 使用 -n 指定輸出檔名時，一次只能靜音一個檔案")
+            sys.exit(1)
+         
+        print(f"準備靜音 {len(files_to_mute)} 個影片檔案...")
+        for input_file in files_to_mute:
+            if manual_output_name:
+                output_file = manual_output_name
+            else:
+                base, ext = os.path.splitext(input_file)
+                output_file = f"{base}_mute{ext}"   # 你原本寫 _mute，我保持一致
+            mute_video(input_file, output_file)
+            print(f"✅ 成功建立檔案: {output_file}")
+         
+        print("所有影片已靜音完成！")
+        return
        
     # --- last. 錯誤處理 ---
     parser.print_help()
     sys.exit(1)
+
 if __name__ == "__main__":
     main()
+
