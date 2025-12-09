@@ -23,7 +23,7 @@ DEFAULT_FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 # 工具函式
 # -------------------
 def find_files(exts):
-    """(舊版) 僅在 CAM_DIR 尋找特定副檔名檔案，用於 --last 和 --date 統計模式。"""
+    """在 CAM_DIR 尋找特定副檔名檔案，用於 --last 和 --date 統計模式。"""
     files = []
     for ext in exts:
         files.extend(glob.glob(os.path.join(CAM_DIR, f"*.{ext}")))
@@ -614,7 +614,8 @@ def main():
         return
     # --- 2. 統計模式 (--last, --date, --info) ---
     if args.last is not None or args.date:
-        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.font, args.pos, args.size]
+        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.sync, args.mute]
+
         if any(conflict_args):
             print("錯誤: 統計模式不能與其他處理選項同時使用")
             sys.exit(1)
@@ -626,7 +627,7 @@ def main():
             show_date(None)
             return
         # --last 模式 (現在處理日期)
-        files = find_files(["mp4"]) # --last 僅適用於影片
+        files = find_files(["mp4", "heic", "HEIC", "jpg", "JPG", "jpeg"])
        
         target_date = None
         if args.last != LATEST_DATE_CONST:
