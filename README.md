@@ -1,5 +1,5 @@
 # usage: camera.py
-'''
+```text
 Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)
 
 範例用法:
@@ -27,4 +27,4 @@ Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (�
   ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
   # 12. (靜音) 將影片去除音軌
   ./camera.py --mute -f "input.mp4"
-'''
+```
