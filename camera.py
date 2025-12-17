@@ -284,7 +284,7 @@ def sync_files():
 
     # === 首選：adb sync（Android 11+ 神器）===
     print("正在使用 adb sync 同步（最快最穩）...")
-    result = subprocess.run(["adb", "sync", "sdcard/DCIM/Camera", LOCAL_DIR],
+    result = subprocess.run(["adb", "sync", REMOTE_DIR, LOCAL_DIR],
                             capture_output=True, text=True)
     if result.returncode == 0:
         print("adb sync 成功！所有新檔案已同步")
@@ -294,7 +294,7 @@ def sync_files():
 
     # === Fallback：暴力搜尋所有可能路徑 ===
     possible_bases = [
-        "/sdcard/DCIM/Camera",
+        REMOTE_DIR,
         "/storage/emulated/0/DCIM/Camera",
         "/sdcard/Android/data/com.android.providers.media/files/DCIM",
         "/storage/emulated/0/Android/data/com.android.providers.media/files/DCIM",
@@ -510,6 +510,39 @@ def mute_video(input_file, output_file=None):
     print(f"✅ 靜音完成：{output_file}")
     return output_file
 
+# camera.py (在同步功能區塊內新增)
+
+def push_files(local_files):
+    """將本地檔案推送到 REMOTE_DIR (手機的 /sdcard/DCIM/Camera)。"""
+    check_adb()
+    
+    # 檢查目標目錄是否存在（或者嘗試創建它，雖然在 Android 上 /sdcard/DCIM/Camera 通常存在）
+    print(f"🔹 檢查遠端目錄 {REMOTE_DIR}...")
+    result = run_adb_command(["shell", f"mkdir -p '{REMOTE_DIR}'"], check=False)
+    if result.returncode != 0:
+        print(f"錯誤: 無法確認或建立遠端目錄 {REMOTE_DIR}")
+        sys.exit(1)
+        
+    print(f"✅ 遠端目錄準備就緒。開始推送 {len(local_files)} 個檔案...")
+    success_count = 0
+    for file_path in local_files:
+        # 只保留檔名部分，直接推送到 REMOTE_DIR 下
+        file_name = os.path.basename(file_path)
+        remote_path = f"{REMOTE_DIR}/{file_name}"
+        
+        print(f"正在推送 {file_path} → {remote_path}...")
+        try:
+            # 使用 adb push
+            run_adb_command(["push", file_path, remote_path])
+            print(f"成功推送: {file_name}")
+            success_count += 1
+        except subprocess.CalledProcessError as e:
+            print(f"推送失敗 {file_name}: {e.stderr.strip()}")
+        except Exception as e:
+            print(f"發生未預期錯誤 {file_name}: {e}")
+            
+    print(f"\n推送完成！成功推送 {success_count}/{len(local_files)} 個檔案到手機。")
+
 # -------------------
 # 主程式
 # -------------------
@@ -535,25 +568,36 @@ def main():
   ./camera.py -l 20251109
   # 3. (統計) 顯示所有檔案按日期的數量統計
   ./camera.py -d
-  # 4. (資訊) 顯示指定檔案的長度與總長度
-  ./camera.py -i "video1.mp4 video2.mp4"
-  # 5. (合併) 合併檔案並指定輸出檔名
+  # 4. (資訊) 顯示指定檔案的長度與解析度
+  ./camera.py -i -f "video1.mp4 video2.mp4"
+  # 5. (資訊) 顯示指定檔案的資訊，並顯示總長度
+  ./camera.py -i -f "video1.mp4 video2.mp4" --info-sum
+  # 6. (資訊) 依影片長度排序顯示資訊
+  ./camera.py -i -f "video*.mp4" --info-sort duration
+  # 7. (合併) 合併檔案並指定輸出檔名
   ./camera.py -m -f "VID_20240201*" -n my_merged_video.mp4
-  # 6. (切片) 切片並指定輸出檔名 (單檔)
-  ./camera.py -S 5-15.5 -f video.mp4 -n sliced_clip.mp4
-  # 7. (縮短) 縮短檔案長度
-  ./camera.py -s 179 -f "20251110*" -n "20251110-割草2.mp4"
-  # 8. (合併+縮短) 合併後縮短
-  ./camera.py -m -s 45 -f "VID_20240201*"
-  # 9. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
+  # 8. (切片) 切片並指定輸出檔名 (單檔，區間格式 mm:ss.ms 或 ss.ms)
+  ./camera.py -S 1:30-2:00.5 -f video.mp4 -n sliced_clip.mp4
+  # 9. (縮短) 縮短檔案長度至 179 秒 (會覆蓋原檔)
+  ./camera.py -s 179 -f "20251110.mp4"
+  # 10. (縮短) 縮短檔案長度至 45 秒，並將結果命名為新檔
+  ./camera.py -s 45 -f "VID_20240201.mp4" -n "VID_20240201-short.mp4"
+  # 11. (合併+縮短) 合併後縮短至 45 秒 (會產生新檔)
+  ./camera.py -m -s 45 -f "VID_20240201*" -n "merged-shortened.mp4"
+  # 12. (合併+切片) 合併後切片，指定區間
+  ./camera.py -m -S 0-10 -f "VID_20240201*" -n "merged-sliced.mp4"
+  # 13. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
   ./camera.py -y
-  # 10. (縮小) 縮小影片解析度
+  # 14. (推送) 將本地檔案推送到手機 DCIM/Camera
+  ./camera.py -p -f "merged-shortened.mp4 output_with_sub.mp4"
+  # 15. (縮小) 縮小影片解析度 (產生新檔: input-1024x768.mp4)
   ./camera.py --shrink 1024x768 -f "input.mp4 another.mp4"
-  # 11. (加字幕) 添加字幕到影片
+  # 16. (加字幕) 添加字幕到影片，輸出新檔
   ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
-  # 12. (靜音) 將影片去除音軌
+  # 17. (靜音) 將影片去除音軌 (產生新檔: input_mute.mp4)
   ./camera.py --mute -f "input.mp4"
     """
+
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -572,29 +616,20 @@ def main():
     parser.add_argument("--info-sum", action="store_true", help=argparse.SUPPRESS)
    
     # 處理功能
-    parser.add_argument("-f", "--files",
-        help=argparse.SUPPRESS)
-    parser.add_argument("-m", "--merge", action="store_true",
-        help=argparse.SUPPRESS)
-    parser.add_argument("-s", "--shorten", type=float,
-        help=argparse.SUPPRESS)
-    parser.add_argument("-S", "--slice",
-        help=argparse.SUPPRESS)
-    parser.add_argument("-n", "--name",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--shrink", type=str, metavar="RESOLUTION",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--text", action="store_true",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--subtitle", type=str,
-        help=argparse.SUPPRESS)
-    parser.add_argument("--font", type=str, default=DEFAULT_FONT_PATH,
-        help=argparse.SUPPRESS)
+    parser.add_argument("-f", "--files", help=argparse.SUPPRESS)
+    parser.add_argument("-m", "--merge", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-s", "--shorten", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("-S", "--slice", help=argparse.SUPPRESS)
+    parser.add_argument("-n", "--name", help=argparse.SUPPRESS)
+    parser.add_argument("--shrink", type=str, metavar="RESOLUTION", help=argparse.SUPPRESS)
+    parser.add_argument("--text", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--subtitle", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--font", type=str, default=DEFAULT_FONT_PATH, help=argparse.SUPPRESS)
     parser.add_argument("--pos", type=str, default="top-left", help=argparse.SUPPRESS)
     parser.add_argument("--size", type=int, default=16, help=argparse.SUPPRESS)
     parser.add_argument("-y", "--sync", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-p", "--push", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument( "-u", "--mute", action="store_true", help=argparse.SUPPRESS)
-
 
     args = parser.parse_args()
     # --- 判斷是否有任何參數被使用 ---
@@ -612,6 +647,29 @@ def main():
             sys.exit(1)
         sync_files()
         return
+
+    # --- 1.5. 推送模式 (--push) ---
+    if args.push:
+        conflict_args = [args.sync, args.date, args.info, args.merge, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.mute]
+        if any(conflict_args) or (args.last is not None):
+            print("錯誤: --push 不能與其他模式或處理選項同時使用")
+            sys.exit(1)
+            
+        if not args.files:
+            print("錯誤: --push 必須搭配 -f 指定要推送的本地檔案。")
+            sys.exit(1)
+            
+        patterns = args.files.split()
+        # require_mp4=False 允許推送任何檔案類型 (mp4, jpg, heic...)
+        files_to_push = resolve_files(patterns, require_mp4=False) 
+        
+        if not files_to_push:
+            print(f"錯誤: 沒有找到符合檔案模式 '{args.files}' 的本地檔案")
+            sys.exit(1)
+        
+        push_files(files_to_push)
+        return
+
     # --- 2. 統計模式 (--last, --date, --info) ---
     if args.last is not None or args.date:
         conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.sync, args.mute]
