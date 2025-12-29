@@ -561,41 +561,37 @@ def validate_date_format_opt(date_str):
 
 def main():
     examples = f"""
-範例用法:
-  # 1. (統計) 顯示最新一天的影片清單
-  ./camera.py -l
-  # 2. (統計) 顯示指定日期 (20251109) 的影片清單
-  ./camera.py -l 20251109
-  # 3. (統計) 顯示所有檔案按日期的數量統計
-  ./camera.py -d
-  # 4. (資訊) 顯示指定檔案的長度與解析度
-  ./camera.py -i -f "video1.mp4 video2.mp4"
-  # 5. (資訊) 顯示指定檔案的資訊，並顯示總長度
-  ./camera.py -i -f "video1.mp4 video2.mp4" --info-sum
-  # 6. (資訊) 依影片長度排序顯示資訊
-  ./camera.py -i -f "video*.mp4" --info-sort duration
-  # 7. (合併) 合併檔案並指定輸出檔名
-  ./camera.py -m -f "VID_20240201*" -n my_merged_video.mp4
-  # 8. (切片) 切片並指定輸出檔名 (單檔，區間格式 mm:ss.ms 或 ss.ms)
-  ./camera.py -S 1:30-2:00.5 -f video.mp4 -n sliced_clip.mp4
-  # 9. (縮短) 縮短檔案長度至 179 秒 (會覆蓋原檔)
-  ./camera.py -s 179 -f "20251110.mp4"
-  # 10. (縮短) 縮短檔案長度至 45 秒，並將結果命名為新檔
-  ./camera.py -s 45 -f "VID_20240201.mp4" -n "VID_20240201-short.mp4"
-  # 11. (合併+縮短) 合併後縮短至 45 秒 (會產生新檔)
-  ./camera.py -m -s 45 -f "VID_20240201*" -n "merged-shortened.mp4"
-  # 12. (合併+切片) 合併後切片，指定區間
-  ./camera.py -m -S 0-10 -f "VID_20240201*" -n "merged-sliced.mp4"
-  # 13. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
-  ./camera.py -y
-  # 14. (推送) 將本地檔案推送到手機 DCIM/Camera
-  ./camera.py -p -f "merged-shortened.mp4 output_with_sub.mp4"
-  # 15. (縮小) 縮小影片解析度 (產生新檔: input-1024x768.mp4)
-  ./camera.py --shrink 1024x768 -f "input.mp4 another.mp4"
-  # 16. (加字幕) 添加字幕到影片，輸出新檔
-  ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
-  # 17. (靜音) 將影片去除音軌 (產生新檔: input_mute.mp4)
-  ./camera.py --mute -f "input.mp4"
+功能分類:
+
+【統計 / 查詢】
+  -l [YYYYmmdd]     顯示最新一天或指定日期的影片清單
+  -d                顯示所有檔案依日期的數量統計
+  -i                顯示影片長度與解析度資訊
+     --info-sort    排序方式 (name|duration|resolution)
+     --info-sum     顯示總影片長度
+
+【處理】
+  -m                合併影片
+  -s SECONDS        縮短影片長度至指定秒數
+  -S START-END     影片切片 (mm:ss.ms-mm:ss.ms)
+  -f "PATTERNS"     指定檔案或萬用字元
+  -n OUTPUT.mp4    指定輸出檔名
+
+【影片處理】
+  --shrink WxH     縮小解析度 (輸出 input-WxH.mp4)
+  --text           添加字幕
+     --subtitle    SRT 字幕檔
+     --font PATH   字型檔 (預設 NotoSansCJK)
+     --pos POS     top-left / bottom-center / center ...
+     --size N      字幕大小
+  -u, --mute       移除影片音軌
+
+【手機同步】
+  -y, --sync       從 Android DCIM/Camera 同步到本機
+  -p, --push       將本機檔案推送到手機 Camera
+
+依賴:
+  ffmpeg / ffprobe / adb
     """
 
     parser = argparse.ArgumentParser(
