@@ -462,6 +462,8 @@ def main():
   ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
   # 12. (靜音) 將影片去除音軌
   ./camera.py --mute -f "input.mp4"
+  # 13. (上傳) 將本地影片推回手機相機資料夾
+  ./camera.py -p -f "20251207-*-shorten.mp4"
     """
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
@@ -502,8 +504,8 @@ def main():
     parser.add_argument("--pos", type=str, default="top-left", help=argparse.SUPPRESS)
     parser.add_argument("--size", type=int, default=16, help=argparse.SUPPRESS)
     parser.add_argument("-y", "--sync", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument( "-u", "--mute", action="store_true", help=argparse.SUPPRESS)
-
+    parser.add_argument("-u", "--mute", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-p", "--push", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     # --- 判斷是否有任何參數被使用 ---
@@ -804,6 +806,41 @@ def main():
            
         print("所有添加字幕操作完成。")
         return
+
+    if args.push:
+        if args.last is not None or args.info or args.merge or args.shorten or args.slice or args.shrink or args.text or args.mute:
+            print("錯誤: --push 不能與其他處理功能同時使用")
+            sys.exit(1)
+
+        if not args.files:
+            print("錯誤: --push 必須搭配 -f 指定要上傳的檔案（支援萬用字元）")
+            sys.exit(1)
+
+        files_to_push = resolve_files(args.files.split(), require_mp4=False)
+
+        if not files_to_push:
+            print("沒有找到要上傳的檔案")
+            sys.exit(1)
+
+        print(f"準備將 {len(files_to_push)} 個檔案上傳到手機相機資料夾...")
+        success_count = 0
+
+        for f in files_to_push:
+            if not os.path.isfile(f):
+                print(f"跳過（檔案不存在）: {f}")
+                continue
+            filename = os.path.basename(f)
+            print(f"正在上傳 {filename} ...")
+            try:
+                result = run_adb_command(["push", f, f"{REMOTE_DIR}/"], check=True)
+                print(f"已上傳 → /sdcard/DCIM/Camera/{filename}")
+                success_count += 1
+            except subprocess.CalledProcessError as e:
+                print(f"上傳失敗 {filename}: {e}")
+
+        print(f"\n上傳完成！成功 {success_count}/{len(files_to_push)} 個檔案")
+        return
+
     # --- 移除音軌 (-u / --mute) ---
     if args.mute:
         if args.last is not None or args.shrink or args.text:
