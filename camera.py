@@ -23,7 +23,7 @@ DEFAULT_FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 # 工具函式
 # -------------------
 def find_files(exts):
-    """(舊版) 僅在 CAM_DIR 尋找特定副檔名檔案，用於 --last 和 --date 統計模式。"""
+    """在 CAM_DIR 尋找特定副檔名檔案，用於 --last 和 --date 統計模式。"""
     files = []
     for ext in exts:
         files.extend(glob.glob(os.path.join(CAM_DIR, f"*.{ext}")))
@@ -257,25 +257,95 @@ def get_file_list(directory, is_remote=False):
     return sorted(files)
 
 def sync_files():
-    """Sync files from REMOTE_DIR to LOCAL_DIR."""
+    """2025 終極同步函數：支援所有 Android 版本與 Scoped Storage"""
     check_adb()
-    check_remote_dir()
     os.makedirs(LOCAL_DIR, exist_ok=True)
-    remote_files = get_file_list(REMOTE_DIR, is_remote=True)
-    local_files = get_file_list(LOCAL_DIR, is_remote=False)
-    new_files = sorted(set(remote_files) - set(local_files))
-    if not new_files:
-        print("✅ 已經是最新狀態，沒有新檔案")
+
+    # === 首選：adb sync（Android 11+ 神器）===
+    print("正在使用 adb sync 同步（最快最穩）...")
+    result = subprocess.run(["adb", "sync", REMOTE_DIR, LOCAL_DIR],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        print("adb sync 成功！所有新檔案已同步")
         return
-        
-    for file in new_files:
-        if file:
-            local_path = os.path.join(LOCAL_DIR, file)
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            print(f"正在下載 {file}...")
-            run_adb_command(["pull", f"{REMOTE_DIR}/{file}", local_path])
-            print(f"已下載: {local_path}")
-    print("同步完成！")
+    else:
+        print("adb sync 失敗（可能是舊版 adb），改用傳統 pull 方式...")
+
+    # === Fallback：暴力搜尋所有可能路徑 ===
+    possible_bases = [
+        REMOTE_DIR,
+        "/storage/emulated/0/DCIM/Camera",
+        "/sdcard/Android/data/com.android.providers.media/files/DCIM",
+        "/storage/emulated/0/Android/data/com.android.providers.media/files/DCIM",
+    ]
+
+    remote_files = set()
+    for base in possible_bases:
+        cmd = ["shell", f"find '{base}' -type f \\( -iname '*.mp4' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' \\) 2>/dev/null"]
+        try:
+            out = run_adb_command(cmd, check=False, capture_output=True)
+            for line in out.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # 轉成相對路徑（只保留 Camera 之後的部分）
+                for prefix in ["/DCIM/Camera/", "/100ANDRO/Camera/", "/Camera/"]:
+                    if prefix in line:
+                        rel_path = line.split(prefix, 1)[1]
+                        if rel_path and not os.path.basename(rel_path).startswith("."):
+                            remote_files.add(rel_path)
+                        break
+        except:
+            continue
+
+    if not remote_files:
+        print("警告：手機上完全找不到相機檔案（可能權限問題或資料夾被隱藏）")
+        return
+
+    # === 本地檔案集合 ===
+    local_files = set()
+    for p in Path(LOCAL_DIR).rglob("*"):
+        if p.is_file():
+            rel = str(p.relative_to(LOCAL_DIR))
+            if not os.path.basename(rel).startswith("."):
+                local_files.add(rel)
+
+    # === 計算需要下載的檔案 ===
+    to_download = sorted(remote_files - local_files)
+
+    if not to_download:
+        print("已是最新狀態，沒有新檔案")
+        return
+
+    print(f"發現 {len(to_download)} 個新檔案，開始下載...")
+    success = 0
+    for rel in to_download:
+        # 嘗試從所有可能路徑找到來源
+        src_path = None
+        for base in possible_bases:
+            for prefix in ["", "/DCIM/Camera", "/100ANDRO/Camera", "/Camera"]:
+                candidate = f"{base}{prefix}/{rel}"
+                if run_adb_command(["shell", "test -f", candidate], check=False).returncode == 0:
+                    src_path = candidate
+                    break
+            if src_path:
+                break
+
+        if not src_path:
+            print(f"警告：找不到來源路徑，跳過 {rel}")
+            continue
+
+        dst_path = os.path.join(LOCAL_DIR, rel)
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        print(f"下載 {rel}")
+        try:
+            run_adb_command(["pull", src_path, dst_path])
+            print(f"完成 {rel}")
+            success += 1
+        except:
+            print(f"失敗 {rel}")
+
+    print(f"\n同步完成！成功下載 {success}/{len(to_download)} 個檔案")
 
 def get_video_info(file_path):
     """🔹 取得影片的長度與解析度資訊
@@ -419,6 +489,39 @@ def mute_video(input_file, output_file=None):
     print(f"✅ 靜音完成：{output_file}")
     return output_file
 
+# camera.py (在同步功能區塊內新增)
+
+def push_files(local_files):
+    """將本地檔案推送到 REMOTE_DIR (手機的 /sdcard/DCIM/Camera)。"""
+    check_adb()
+    
+    # 檢查目標目錄是否存在（或者嘗試創建它，雖然在 Android 上 /sdcard/DCIM/Camera 通常存在）
+    print(f"🔹 檢查遠端目錄 {REMOTE_DIR}...")
+    result = run_adb_command(["shell", f"mkdir -p '{REMOTE_DIR}'"], check=False)
+    if result.returncode != 0:
+        print(f"錯誤: 無法確認或建立遠端目錄 {REMOTE_DIR}")
+        sys.exit(1)
+        
+    print(f"✅ 遠端目錄準備就緒。開始推送 {len(local_files)} 個檔案...")
+    success_count = 0
+    for file_path in local_files:
+        # 只保留檔名部分，直接推送到 REMOTE_DIR 下
+        file_name = os.path.basename(file_path)
+        remote_path = f"{REMOTE_DIR}/{file_name}"
+        
+        print(f"正在推送 {file_path} → {remote_path}...")
+        try:
+            # 使用 adb push
+            run_adb_command(["push", file_path, remote_path])
+            print(f"成功推送: {file_name}")
+            success_count += 1
+        except subprocess.CalledProcessError as e:
+            print(f"推送失敗 {file_name}: {e.stderr.strip()}")
+        except Exception as e:
+            print(f"發生未預期錯誤 {file_name}: {e}")
+            
+    print(f"\n推送完成！成功推送 {success_count}/{len(local_files)} 個檔案到手機。")
+
 # -------------------
 # 主程式
 # -------------------
@@ -437,34 +540,39 @@ def validate_date_format_opt(date_str):
 
 def main():
     examples = f"""
-範例用法:
-  # 1. (統計) 顯示最新一天的影片清單
-  ./camera.py -l
-  # 2. (統計) 顯示指定日期 (20251109) 的影片清單
-  ./camera.py -l 20251109
-  # 3. (統計) 顯示所有檔案按日期的數量統計
-  ./camera.py -d
-  # 4. (資訊) 顯示指定檔案的長度與總長度
-  ./camera.py -i "video1.mp4 video2.mp4"
-  # 5. (合併) 合併檔案並指定輸出檔名
-  ./camera.py -m -f "VID_20240201*" -n my_merged_video.mp4
-  # 6. (切片) 切片並指定輸出檔名 (單檔)
-  ./camera.py -S 5-15.5 -f video.mp4 -n sliced_clip.mp4
-  # 7. (縮短) 縮短檔案長度
-  ./camera.py -s 179 -f "20251110*" -n "20251110-割草2.mp4"
-  # 8. (合併+縮短) 合併後縮短
-  ./camera.py -m -s 45 -f "VID_20240201*"
-  # 9. (同步) 從手機 DCIM/Camera 同步新檔案到本地目錄
-  ./camera.py -y
-  # 10. (縮小) 縮小影片解析度
-  ./camera.py --shrink 1024x768 -f "input.mp4 another.mp4"
-  # 11. (加字幕) 添加字幕到影片
-  ./camera.py --text -f "input.mp4" --subtitle subtitles.srt -n output_with_sub.mp4 --pos bottom-center --size 20 --font /path/to/font.ttc
-  # 12. (靜音) 將影片去除音軌
-  ./camera.py --mute -f "input.mp4"
-  # 13. (上傳) 將本地影片推回手機相機資料夾
-  ./camera.py -p -f "20251207-*-shorten.mp4"
+功能分類:
+
+【統計 / 查詢】
+  -l [YYYYmmdd]     顯示最新一天或指定日期的影片清單
+  -d                顯示所有檔案依日期的數量統計
+  -i                顯示影片長度與解析度資訊
+     --info-sort    排序方式 (name|duration|resolution)
+     --info-sum     顯示總影片長度
+
+【處理】
+  -m                合併影片
+  -s SECONDS        縮短影片長度至指定秒數
+  -S START-END     影片切片 (mm:ss.ms-mm:ss.ms)
+  -f "PATTERNS"     指定檔案或萬用字元
+  -n OUTPUT.mp4    指定輸出檔名
+
+【影片處理】
+  --shrink WxH     縮小解析度 (輸出 input-WxH.mp4)
+  --text           添加字幕
+     --subtitle    SRT 字幕檔
+     --font PATH   字型檔 (預設 NotoSansCJK)
+     --pos POS     top-left / bottom-center / center ...
+     --size N      字幕大小
+  -u, --mute       移除影片音軌
+
+【手機同步】
+  -y, --sync       從 Android DCIM/Camera 同步到本機
+  -p, --push       將本機檔案推送到手機 Camera
+
+依賴:
+  ffmpeg / ffprobe / adb
     """
+
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -483,29 +591,20 @@ def main():
     parser.add_argument("--info-sum", action="store_true", help=argparse.SUPPRESS)
    
     # 處理功能
-    parser.add_argument("-f", "--files",
-        help=argparse.SUPPRESS)
-    parser.add_argument("-m", "--merge", action="store_true",
-        help=argparse.SUPPRESS)
-    parser.add_argument("-s", "--shorten", type=float,
-        help=argparse.SUPPRESS)
-    parser.add_argument("-S", "--slice",
-        help=argparse.SUPPRESS)
-    parser.add_argument("-n", "--name",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--shrink", type=str, metavar="RESOLUTION",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--text", action="store_true",
-        help=argparse.SUPPRESS)
-    parser.add_argument("--subtitle", type=str,
-        help=argparse.SUPPRESS)
-    parser.add_argument("--font", type=str, default=DEFAULT_FONT_PATH,
-        help=argparse.SUPPRESS)
+    parser.add_argument("-f", "--files", help=argparse.SUPPRESS)
+    parser.add_argument("-m", "--merge", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-s", "--shorten", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("-S", "--slice", help=argparse.SUPPRESS)
+    parser.add_argument("-n", "--name", help=argparse.SUPPRESS)
+    parser.add_argument("--shrink", type=str, metavar="RESOLUTION", help=argparse.SUPPRESS)
+    parser.add_argument("--text", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--subtitle", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--font", type=str, default=DEFAULT_FONT_PATH, help=argparse.SUPPRESS)
     parser.add_argument("--pos", type=str, default="top-left", help=argparse.SUPPRESS)
     parser.add_argument("--size", type=int, default=16, help=argparse.SUPPRESS)
     parser.add_argument("-y", "--sync", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("-u", "--mute", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("-p", "--push", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument( "-u", "--mute", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     # --- 判斷是否有任何參數被使用 ---
@@ -523,9 +622,33 @@ def main():
             sys.exit(1)
         sync_files()
         return
+
+    # --- 1.5. 推送模式 (--push) ---
+    if args.push:
+        conflict_args = [args.sync, args.date, args.info, args.merge, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.mute]
+        if any(conflict_args) or (args.last is not None):
+            print("錯誤: --push 不能與其他模式或處理選項同時使用")
+            sys.exit(1)
+            
+        if not args.files:
+            print("錯誤: --push 必須搭配 -f 指定要推送的本地檔案。")
+            sys.exit(1)
+            
+        patterns = args.files.split()
+        # require_mp4=False 允許推送任何檔案類型 (mp4, jpg, heic...)
+        files_to_push = resolve_files(patterns, require_mp4=False) 
+        
+        if not files_to_push:
+            print(f"錯誤: 沒有找到符合檔案模式 '{args.files}' 的本地檔案")
+            sys.exit(1)
+        
+        push_files(files_to_push)
+        return
+
     # --- 2. 統計模式 (--last, --date, --info) ---
     if args.last is not None or args.date:
-        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.font, args.pos, args.size]
+        conflict_args = [args.info, args.merge, args.files, args.shorten, args.slice, args.shrink, args.name, args.text, args.subtitle, args.sync, args.mute]
+
         if any(conflict_args):
             print("錯誤: 統計模式不能與其他處理選項同時使用")
             sys.exit(1)
@@ -537,7 +660,7 @@ def main():
             show_date(None)
             return
         # --last 模式 (現在處理日期)
-        files = find_files(["mp4"]) # --last 僅適用於影片
+        files = find_files(["mp4", "heic", "HEIC", "jpg", "JPG", "jpeg"])
        
         target_date = None
         if args.last != LATEST_DATE_CONST:
@@ -805,40 +928,6 @@ def main():
                 print(f"添加字幕失敗 for {input_file}: {e}")
            
         print("所有添加字幕操作完成。")
-        return
-
-    if args.push:
-        if args.last is not None or args.info or args.merge or args.shorten or args.slice or args.shrink or args.text or args.mute:
-            print("錯誤: --push 不能與其他處理功能同時使用")
-            sys.exit(1)
-
-        if not args.files:
-            print("錯誤: --push 必須搭配 -f 指定要上傳的檔案（支援萬用字元）")
-            sys.exit(1)
-
-        files_to_push = resolve_files(args.files.split(), require_mp4=False)
-
-        if not files_to_push:
-            print("沒有找到要上傳的檔案")
-            sys.exit(1)
-
-        print(f"準備將 {len(files_to_push)} 個檔案上傳到手機相機資料夾...")
-        success_count = 0
-
-        for f in files_to_push:
-            if not os.path.isfile(f):
-                print(f"跳過（檔案不存在）: {f}")
-                continue
-            filename = os.path.basename(f)
-            print(f"正在上傳 {filename} ...")
-            try:
-                result = run_adb_command(["push", f, f"{REMOTE_DIR}/"], check=True)
-                print(f"已上傳 → /sdcard/DCIM/Camera/{filename}")
-                success_count += 1
-            except subprocess.CalledProcessError as e:
-                print(f"上傳失敗 {filename}: {e}")
-
-        print(f"\n上傳完成！成功 {success_count}/{len(files_to_push)} 個檔案")
         return
 
     # --- 移除音軌 (-u / --mute) ---
