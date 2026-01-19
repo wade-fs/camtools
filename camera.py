@@ -13,7 +13,7 @@ from pathlib import Path
 # Configuration
 
 CAM_DIR = "Camera"
-REMOTE_DIR = "/sdcard/DCIM/Camera"
+REMOTE_DIR = "/storage/emulated/0/DCIM/Camera"
 LOCAL_DIR = os.path.expanduser("~/Pictures/Camera") # For sync functionality
 TODAY = datetime.now().strftime("%Y%m%d")
 LATEST_DATE_CONST = "LATEST_DATE"
@@ -209,6 +209,13 @@ def slice_video(input_file, slice_range, output_file):
 # -------------------
 # 同步功能 (來自 sync-camera.py)
 # -------------------
+def adb_quote(path: str) -> str:
+    """
+    Safe quote for adb shell path.
+    Handles spaces and special characters.
+    """
+    return shlex.quote(path)
+
 def run_adb_command(args, capture_output=True, check=True):
     """Run an adb command and return the result."""
     try:
@@ -259,29 +266,21 @@ def get_file_list(directory, is_remote=False):
 def sync_files():
     """2025 終極同步函數：支援所有 Android 版本與 Scoped Storage"""
     check_adb()
-    os.makedirs(LOCAL_DIR, exist_ok=True)
-
-    # === 首選：adb sync（Android 11+ 神器）===
-    print("正在使用 adb sync 同步（最快最穩）...")
-    result = subprocess.run(["adb", "sync", REMOTE_DIR, LOCAL_DIR],
-                            capture_output=True, text=True)
-    if result.returncode == 0:
-        print("adb sync 成功！所有新檔案已同步")
-        return
-    else:
-        print("adb sync 失敗（可能是舊版 adb），改用傳統 pull 方式...")
 
     # === Fallback：暴力搜尋所有可能路徑 ===
     possible_bases = [
         REMOTE_DIR,
-        "/storage/emulated/0/DCIM/Camera",
-        "/sdcard/Android/data/com.android.providers.media/files/DCIM",
-        "/storage/emulated/0/Android/data/com.android.providers.media/files/DCIM",
     ]
 
     remote_files = set()
     for base in possible_bases:
-        cmd = ["shell", f"find '{base}' -type f \\( -iname '*.mp4' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' \\) 2>/dev/null"]
+        base_q = adb_quote(base)
+        cmd = [
+            "shell",
+            f"find {base_q} -type f \\( "
+            "-iname '*.mp4' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' "
+            "\\) 2>/dev/null"
+        ]
         try:
             out = run_adb_command(cmd, check=False, capture_output=True)
             for line in out.stdout.splitlines():
@@ -325,7 +324,12 @@ def sync_files():
         for base in possible_bases:
             for prefix in ["", "/DCIM/Camera", "/100ANDRO/Camera", "/Camera"]:
                 candidate = f"{base}{prefix}/{rel}"
-                if run_adb_command(["shell", "test -f", candidate], check=False).returncode == 0:
+                candidate_q = adb_quote(candidate)
+
+                if run_adb_command(
+                    ["shell", f"test -f {candidate_q}"],
+                    check=False
+                ).returncode == 0:
                     src_path = candidate
                     break
             if src_path:
