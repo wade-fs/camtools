@@ -13,7 +13,7 @@ from pathlib import Path
 # Configuration
 
 CAM_DIR = "Camera"
-REMOTE_DIR = "/sdcard/DCIM/Camera"
+REMOTE_DIR = "/storage/emulated/0/DCIM/Camera"
 LOCAL_DIR = os.path.expanduser("~/Pictures/Camera") # For sync functionality
 TODAY = datetime.now().strftime("%Y%m%d")
 LATEST_DATE_CONST = "LATEST_DATE"
@@ -259,24 +259,10 @@ def get_file_list(directory, is_remote=False):
 def sync_files():
     """2025 終極同步函數：支援所有 Android 版本與 Scoped Storage"""
     check_adb()
-    os.makedirs(LOCAL_DIR, exist_ok=True)
-
-    # === 首選：adb sync（Android 11+ 神器）===
-    print("正在使用 adb sync 同步（最快最穩）...")
-    result = subprocess.run(["adb", "sync", REMOTE_DIR, LOCAL_DIR],
-                            capture_output=True, text=True)
-    if result.returncode == 0:
-        print("adb sync 成功！所有新檔案已同步")
-        return
-    else:
-        print("adb sync 失敗（可能是舊版 adb），改用傳統 pull 方式...")
 
     # === Fallback：暴力搜尋所有可能路徑 ===
     possible_bases = [
         REMOTE_DIR,
-        "/storage/emulated/0/DCIM/Camera",
-        "/sdcard/Android/data/com.android.providers.media/files/DCIM",
-        "/storage/emulated/0/Android/data/com.android.providers.media/files/DCIM",
     ]
 
     remote_files = set()
@@ -492,16 +478,9 @@ def mute_video(input_file, output_file=None):
 # camera.py (在同步功能區塊內新增)
 
 def push_files(local_files):
-    """將本地檔案推送到 REMOTE_DIR (手機的 /sdcard/DCIM/Camera)。"""
+    """將本地檔案推送到 REMOTE_DIR (手機的 /storage/emulated/0/DCIM/Camera)。"""
     check_adb()
     
-    # 檢查目標目錄是否存在（或者嘗試創建它，雖然在 Android 上 /sdcard/DCIM/Camera 通常存在）
-    print(f"🔹 檢查遠端目錄 {REMOTE_DIR}...")
-    result = run_adb_command(["shell", f"mkdir -p '{REMOTE_DIR}'"], check=False)
-    if result.returncode != 0:
-        print(f"錯誤: 無法確認或建立遠端目錄 {REMOTE_DIR}")
-        sys.exit(1)
-        
     print(f"✅ 遠端目錄準備就緒。開始推送 {len(local_files)} 個檔案...")
     success_count = 0
     for file_path in local_files:
