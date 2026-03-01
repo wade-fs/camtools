@@ -34,28 +34,48 @@ def resolve_files(patterns, require_mp4=True):
     根據使用者輸入的 patterns (可能包含通配符或無副檔名) 尋找檔案。
     - 搜尋路徑: Camera/ 和 ./
     - 預設副檔名: .mp4 (如果 require_mp4 為 True)
+    - 保持使用者輸入的順序，並排除重複檔案。
     """
-    found_files = set()
+    ordered_files = []
+    seen = set()
+
     for pattern in patterns:
         base, ext = os.path.splitext(pattern)
-       
+        
         # 處理副檔名：如果要求 .mp4 且使用者未指定副檔名，則強制加上 .mp4
         if require_mp4 and not ext and pattern not in ['.', CAM_DIR]: # 避免對 '.' 和 'Camera' 加上 .mp4
             pattern_to_search = pattern + ".mp4"
         else:
             pattern_to_search = pattern
+            
+        # 暫存這一個 pattern 找到的檔案
+        matched_for_pattern = []
+        
         # 搜尋當前目錄和 Camera/
         for search_dir in ['.', CAM_DIR]:
             if os.path.isabs(pattern_to_search):
                 if os.path.isfile(pattern_to_search):
-                    found_files.add(pattern_to_search)
+                    matched_for_pattern.append(pattern_to_search)
                 break
-           
+            
             full_pattern = os.path.join(search_dir, pattern_to_search)
             for f in glob.glob(full_pattern, recursive=False):
                 if os.path.isfile(f):
-                    found_files.add(f)
-    return sorted(list(found_files))
+                    matched_for_pattern.append(f)
+                    
+        # 針對這一個 pattern 找到的檔案進行排序 
+        # (確保當使用萬用字元如 20260301* 時，展開的這批檔案能照時間/字母順序排列)
+        matched_for_pattern.sort()
+
+        # 依序加入最終清單，並利用 seen 集合過濾掉已經加入過的檔案
+        for f in matched_for_pattern:
+            # 正規化路徑 (把 ./file.mp4 轉成 file.mp4)，避免路徑寫法不同造成重複計算
+            norm_f = os.path.normpath(f)
+            if norm_f not in seen:
+                seen.add(norm_f)
+                ordered_files.append(norm_f)
+
+    return ordered_files
 
 def extract_date(filename):
     basename = os.path.basename(filename)
@@ -506,8 +526,10 @@ def push_files(local_files):
 # -------------------
 def validate_date_format_opt(date_str):
     """驗證日期字串是否為 YYYYmmdd 格式，允許 None (即沒有傳入參數)。"""
-    if date_str is None:
-        return None
+    # 允許 None 或是預設常數 LATEST_DATE_CONST 通過驗證
+    if date_str is None or date_str == LATEST_DATE_CONST:
+        return date_str
+        
     if not re.match(r'^\d{8}$', date_str):
         # 這裡需要一個 ArgumentTypeError 來讓 argparse 捕捉錯誤
         raise argparse.ArgumentTypeError(f"日期格式錯誤: '{date_str}'，必須是 YYYYmmdd 格式。")
