@@ -776,6 +776,14 @@ def main():
                     # 切片會產生新檔：slice_video(輸入, 區間, 輸出)
                     slice_video(temp_merged_file, args.slice, output_file)
                     print(f"✅ 成功建立檔案: {output_file}")
+                
+                # ===== 新增：印出合併的檔案清單 =====
+                print("\n🔹 實際合併的檔案清單 (依序):")
+                for idx, f in enumerate(files_to_process, 1):
+                    print(f"  {idx}. {f}")
+                print("-" * 30)
+                # ==================================
+
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg 處理失敗: {e}")
                 if os.path.exists(temp_merged_file): os.remove(temp_merged_file)
@@ -798,6 +806,14 @@ def main():
             try:
                 subprocess.run(["ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_file, "-c", "copy", output_file], check=True)
                 print(f"✅ 成功建立檔案：{output_file}")
+                
+                # ===== 新增：印出合併的檔案清單 =====
+                print("\n🔹 實際合併的檔案清單 (依序):")
+                for idx, f in enumerate(files_to_process, 1):
+                    print(f"  {idx}. {f}")
+                print("-" * 30)
+                # ==================================
+
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg 合併失敗: {e}")
                 sys.exit(1)
