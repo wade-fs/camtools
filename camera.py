@@ -343,13 +343,18 @@ def sync_files():
 
         dst_path = os.path.join(LOCAL_DIR, rel)
         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-        print(f"下載 {rel}")
+        
+        # 使用 \r 並加上 end=""，讓游標停在行首不換行
+        print(f"\r正在下載 {rel} ...", end="", flush=True)
+        
         try:
             run_adb_command(["pull", src_path, dst_path])
-            print(f"完成 {rel}")
+            # 下載成功後，直接印出完成訊息（會覆蓋掉原本的正在下載訊息）
+            # 加上 \033[K 是 ANSI 跳脫字元，用來清除該行剩餘的文字，避免長檔名被短檔名覆蓋時留下殘影
+            print(f"\r✅ 完成 {rel}\033[K") 
             success += 1
         except:
-            print(f"失敗 {rel}")
+            print(f"\r❌ 失敗 {rel}\033[K")
 
     print(f"\n同步完成！成功下載 {success}/{len(to_download)} 個檔案")
 
@@ -541,39 +546,33 @@ def validate_date_format_opt(date_str):
 
 def main():
     examples = f"""
-功能分類:
-
-【統計 / 查詢】
-  -l [YYYYmmdd]     顯示最新一天或指定日期的影片清單
-  -d                顯示所有檔案依日期的數量統計
-  -i                顯示影片長度與解析度資訊
-     --info-sort    排序方式 (name|duration|resolution)
-     --info-sum     顯示總影片長度
-
-【處理】
-  -m                合併影片
-  -s SECONDS        縮短影片長度至指定秒數
-  -S START-END     影片切片 (mm:ss.ms-mm:ss.ms)
-  -f "PATTERNS"     指定檔案或萬用字元
-  -n OUTPUT.mp4    指定輸出檔名
-
-【影片處理】
-  --shrink WxH     縮小解析度 (輸出 input-WxH.mp4)
-  --text           添加字幕
-     --subtitle    SRT 字幕檔
-     --font PATH   字型檔 (預設 NotoSansCJK)
-     --pos POS     top-left / bottom-center / center ...
-     --size N      字幕大小
-  -u, --mute       移除影片音軌
-
-【手機同步】
-  -y, --sync       從 Android DCIM/Camera 同步到本機
-  -p, --push       將本機檔案推送到手機 Camera
-
-依賴:
-  ffmpeg / ffprobe / adb
+    功能分類:
+    【統計 / 查詢】
+      -l, --last [YYYYmmdd]    顯示最新一天或指定日期的影片清單
+      -d, --date               顯示所有檔案依日期的數量統計
+      -i, --info               顯示影片長度與解析度資訊
+          --info-sort          排序方式 (name|duration|resolution)
+          --info-sum           顯示總影片長度
+    【處理】
+      -m, --merge              合併影片
+      -s, --shorten SECONDS    縮短影片長度至指定秒數
+      -S, --slice START-END    影片切片 (mm:ss.ms-mm:ss.ms)
+      -f, --files "PATTERNS"   指定檔案或萬用字元
+      -n, --name OUTPUT.mp4    指定輸出檔名
+    【影片處理】
+          --shrink WxH         縮小解析度 (輸出 input-WxH.mp4)
+          --text               添加字幕
+          --subtitle           SRT 字幕檔
+          --font PATH          字型檔 (預設 NotoSansCJK)
+          --pos POS            top-left / bottom-center / center ...
+          --size N             字幕大小
+      -u, --mute               移除影片音軌
+    【手機同步】
+      -y, --sync               從 Android DCIM/Camera 同步到本機
+      -p, --push               將本機檔案推送到手機 Camera
+    依賴:
+      ffmpeg / ffprobe / adb
     """
-
     parser = argparse.ArgumentParser(
         description="Camera 影片工具：統計、合併、縮短、切片、同步手機檔案 (依賴 ffprobe/ffmpeg/adb)",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -777,12 +776,20 @@ def main():
                     slice_video(temp_merged_file, args.slice, output_file)
                     print(f"✅ 成功建立檔案: {output_file}")
                 
-                # ===== 新增：印出合併的檔案清單 =====
+                # ===== 新增：印出合併的檔案清單與長度 =====
                 print("\n🔹 實際合併的檔案清單 (依序):")
+                total_input_duration = 0.0
                 for idx, f in enumerate(files_to_process, 1):
-                    print(f"  {idx}. {f}")
-                print("-" * 30)
-                # ==================================
+                    dur = get_duration(f)
+                    total_input_duration += dur
+                    print(f"  {idx}. {f} ({dur:.2f}s)")
+                
+                final_dur = get_duration(output_file)
+                print("-" * 40)
+                print(f"原始總長度: {total_input_duration:.2f}s")
+                print(f"處理後長度: {final_dur:.2f}s (輸出檔: {output_file})")
+                print("-" * 40)
+                # =========================================
 
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg 處理失敗: {e}")
@@ -807,12 +814,20 @@ def main():
                 subprocess.run(["ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_file, "-c", "copy", output_file], check=True)
                 print(f"✅ 成功建立檔案：{output_file}")
                 
-                # ===== 新增：印出合併的檔案清單 =====
+                # ===== 新增：印出合併的檔案清單與長度 =====
                 print("\n🔹 實際合併的檔案清單 (依序):")
+                total_input_duration = 0.0
                 for idx, f in enumerate(files_to_process, 1):
-                    print(f"  {idx}. {f}")
-                print("-" * 30)
-                # ==================================
+                    dur = get_duration(f)
+                    total_input_duration += dur
+                    print(f"  {idx}. {f} ({dur:.2f}s)")
+                
+                final_dur = get_duration(output_file)
+                print("-" * 40)
+                print(f"合併前總長度: {total_input_duration:.2f}s")
+                print(f"合併後總長度: {final_dur:.2f}s (輸出檔: {output_file})")
+                print("-" * 40)
+                # =========================================
 
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg 合併失敗: {e}")
