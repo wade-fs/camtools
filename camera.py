@@ -229,6 +229,13 @@ def slice_video(input_file, slice_range, output_file):
 # -------------------
 # 同步功能 (來自 sync-camera.py)
 # -------------------
+def adb_quote(path: str) -> str:
+    """
+    Safe quote for adb shell path.
+    Handles spaces and special characters.
+    """
+    return shlex.quote(path)
+
 def run_adb_command(args, capture_output=True, check=True):
     """Run an adb command and return the result."""
     try:
@@ -287,7 +294,13 @@ def sync_files():
 
     remote_files = set()
     for base in possible_bases:
-        cmd = ["shell", f"find '{base}' -type f \\( -iname '*.mp4' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' \\) 2>/dev/null"]
+        base_q = adb_quote(base)
+        cmd = [
+            "shell",
+            f"find {base_q} -type f \\( "
+            "-iname '*.mp4' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' "
+            "\\) 2>/dev/null"
+        ]
         try:
             out = run_adb_command(cmd, check=False, capture_output=True)
             for line in out.stdout.splitlines():
@@ -331,7 +344,12 @@ def sync_files():
         for base in possible_bases:
             for prefix in ["", "/DCIM/Camera", "/100ANDRO/Camera", "/Camera"]:
                 candidate = f"{base}{prefix}/{rel}"
-                if run_adb_command(["shell", "test -f", candidate], check=False).returncode == 0:
+                candidate_q = adb_quote(candidate)
+
+                if run_adb_command(
+                    ["shell", f"test -f {candidate_q}"],
+                    check=False
+                ).returncode == 0:
                     src_path = candidate
                     break
             if src_path:
